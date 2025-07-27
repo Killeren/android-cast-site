@@ -2,14 +2,12 @@
  * WebRTC Screen Sharing Application using PeerJS
  * This app allows one device to share its screen with another device
  */
-
 // Global variables
 let peer = null;
 let localStream = null;
 let currentCall = null;
 let isSharing = false;
 let isViewing = false;
-
 // DOM elements
 const sessionIdInput = document.getElementById('sessionId');
 const generateIdBtn = document.getElementById('generateId');
@@ -18,7 +16,6 @@ const viewScreenBtn = document.getElementById('viewScreen');
 const statusDiv = document.getElementById('status');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
-
 /**
  * Initialize the application when DOM is loaded
  */
@@ -33,7 +30,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     updateStatus('Ready to connect');
 });
-
 /**
  * Generate a random 6-digit session ID
  */
@@ -49,7 +45,6 @@ function generateSessionId() {
     sessionIdInput.value = sessionId;
     updateStatus('Session ID generated: ' + sessionId);
 }
-
 /**
  * Validate session ID input (6 characters, alphanumeric)
  */
@@ -57,7 +52,6 @@ function validateSessionId() {
     const value = sessionIdInput.value.toUpperCase();
     sessionIdInput.value = value.slice(0, 6); // Limit to 6 characters
 }
-
 /**
  * Start screen sharing (sender mode)
  */
@@ -91,13 +85,15 @@ async function startScreenShare() {
         
         // Initialize PeerJS connection
         peer = new Peer(sessionId, {
-            host: 'peerjs.com',
-            secure: true,
-            port: 443,
+            host: 'YOUR_PUBLIC_IP', // e.g., '203.0.113.10'
+            port: 9000,
+            path: '/',
+            secure: false,
             config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' }
-                ]
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }
+                // Add TURN servers here if needed
+              ]
             }
         });
         
@@ -155,7 +151,6 @@ async function startScreenShare() {
         disableButtons(false);
     }
 }
-
 /**
  * Stop screen sharing
  */
@@ -184,7 +179,6 @@ function stopScreenShare() {
     
     updateStatus('Screen sharing stopped');
 }
-
 /**
  * View screen from another device (receiver mode)
  */
@@ -211,13 +205,15 @@ function viewScreen() {
         
         // Initialize PeerJS connection
         peer = new Peer(viewerId, {
-            host: 'peerjs.com',
-            secure: true,
-            port: 443,
+            host: 'YOUR_PUBLIC_IP', // e.g., '203.0.113.10'
+            port: 9000,
+            path: '/',
+            secure: false,
             config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' }
-                ]
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }
+                // Add TURN servers here if needed
+              ]
             }
         });
         
@@ -284,7 +280,6 @@ function viewScreen() {
         disableButtons(false);
     }
 }
-
 /**
  * Stop viewing screen share
  */
@@ -308,7 +303,6 @@ function stopViewing() {
     
     updateStatus('Stopped viewing screen share');
 }
-
 /**
  * Update status message with optional styling
  */
@@ -325,7 +319,6 @@ function updateStatus(message, type = '') {
     
     console.log('Status:', message);
 }
-
 /**
  * Disable/enable buttons during connection attempts
  */
@@ -340,7 +333,6 @@ function disableButtons(disabled) {
         viewScreenBtn.disabled = disabled;
     }
 }
-
 /**
  * Clean up connections when page is unloaded
  */
