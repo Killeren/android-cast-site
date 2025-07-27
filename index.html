@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Screen Share</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="main-content">
+            <div class="card">
+                <div class="card__body">
+                    <h1>WebRTC Screen Share</h1>
+                    <p>Share your screen with another device using WebRTC</p>
+                    
+                    <div class="form-group">
+                        <label for="sessionId" class="form-label">Session ID</label>
+                        <input 
+                            type="text" 
+                            id="sessionId" 
+                            class="form-control" 
+                            placeholder="Enter or generate session ID"
+                            maxlength="6"
+                        >
+                    </div>
+                    
+                    <div class="button-group">
+                        <button id="generateId" class="btn btn--secondary">Generate ID</button>
+                        <button id="startShare" class="btn btn--primary">Share Screen</button>
+                        <button id="viewScreen" class="btn btn--outline">View Screen</button>
+                    </div>
+                    
+                    <div id="status" class="status-message">Ready to connect</div>
+                </div>
+            </div>
+            
+            <div id="videos" class="videos-container">
+                <div class="video-wrapper">
+                    <h3>Local Video</h3>
+                    <video id="localVideo" muted autoplay playsinline></video>
+                </div>
+                <div class="video-wrapper">
+                    <h3>Remote Video</h3>
+                    <video id="remoteVideo" autoplay playsinline></video>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
