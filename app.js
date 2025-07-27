@@ -85,7 +85,7 @@ async function startScreenShare() {
         
         // Initialize PeerJS connection
         peer = new Peer(sessionId, {
-            host: '2401:4900:8fdc:d9d8:f8c8:59c8:ea41:4a47',
+            host: '223.181.15.65',
             port: 9000,
             path: '/',
             secure: false,
@@ -205,7 +205,7 @@ function viewScreen() {
         
         // Initialize PeerJS connection
         peer = new Peer(viewerId, {
-            host: '2401:4900:8fdc:d9d8:f8c8:59c8:ea41:4a47',
+            host: '223.181.15.65',
             port: 9000,
             path: '/',
             secure: false,
