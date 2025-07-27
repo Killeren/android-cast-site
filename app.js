@@ -93,7 +93,7 @@ async function startScreenShare() {
               iceServers: [
                 // { urls: 'stun:stun.l.google.com:19302' },
                 {
-                  urls: 'turn:35.200.221.49:3478',
+                  urls: 'turn:35.200.221.49:3478?transport=tcp',
                   username: 'peeruser',
                   credential: 'peerpass123'
                 }
@@ -217,7 +217,7 @@ function viewScreen() {
               iceServers: [
                 // { urls: 'stun:stun.l.google.com:19302' },
                 {
-                  urls: 'turn:35.200.221.49:3478',
+                  urls: 'turn:35.200.221.49:3478?transport=tcp',
                   username: 'peeruser',
                   credential: 'peerpass123'
                 }
