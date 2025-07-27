@@ -91,8 +91,12 @@ async function startScreenShare() {
             secure: true,
             config: {
               iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
-                // Add TURN servers here if needed
+                { urls: 'stun:stun.l.google.com:19302' },
+                {
+                  urls: 'turn:35.200.221.49:3478',
+                  username: 'peeruser',
+                  credential: 'peerpass123'
+                }
               ]
             }
         });
@@ -211,8 +215,12 @@ function viewScreen() {
             secure: true,
             config: {
               iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
-                // Add TURN servers here if needed
+                { urls: 'stun:stun.l.google.com:19302' },
+                {
+                  urls: 'turn:35.200.221.49:3478',
+                  username: 'peeruser',
+                  credential: 'peerpass123'
+                }
               ]
             }
         });
