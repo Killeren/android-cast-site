@@ -88,7 +88,7 @@ async function startScreenShare() {
             host: '223.181.15.65',
             port: 9000,
             path: '/',
-            secure: false,
+            secure: true,
             config: {
               iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' }
@@ -208,7 +208,7 @@ function viewScreen() {
             host: '223.181.15.65',
             port: 9000,
             path: '/',
-            secure: false,
+            secure: true,
             config: {
               iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' }
