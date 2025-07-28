@@ -302,6 +302,7 @@ function viewScreen() {
             updateStatus(`Calling screen sharer (${sessionId})...`, 'waiting');
             console.log('Viewer peer opened with ID:', id);
             console.log('Target sharer ID:', sessionId);
+            console.log('PeerJS server connection established');
             
             // Add a small delay to ensure the sharer is ready
             setTimeout(() => {
@@ -342,6 +343,14 @@ function viewScreen() {
                 }
                 
                 console.log('Attempting to call sharer with session ID:', sessionId);
+                
+                // Test if peer.call method exists
+                if (typeof peer.call !== 'function') {
+                    console.error('peer.call is not a function');
+                    updateStatus('PeerJS connection error. Please refresh and try again.', 'error');
+                    stopViewing();
+                    return;
+                }
                 
                 // Call the screen sharer
                 currentCall = peer.call(sessionId, null); // No stream from viewer
@@ -398,6 +407,7 @@ function viewScreen() {
                         console.log('1. The sharer is not actually sharing with this session ID');
                         console.log('2. The session ID is incorrect');
                         console.log('3. The sharer is not connected to the PeerJS server');
+                        console.log('4. The PeerJS server is not working properly');
                     }
                     
                     // Retry if we haven't retried too many times
@@ -438,6 +448,10 @@ function viewScreen() {
             
             if (err.type === 'peer-unavailable') {
                 updateStatus('Screen sharer not found. Please check the session ID.', 'error');
+            } else if (err.type === 'network') {
+                updateStatus('Network error. Please check your internet connection.', 'error');
+            } else if (err.type === 'server-error') {
+                updateStatus('PeerJS server error. Please try again later.', 'error');
             } else {
                 updateStatus(`Connection error: ${err.message}`, 'error');
             }
