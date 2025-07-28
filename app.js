@@ -304,33 +304,9 @@ function viewScreen() {
             
             // Add a small delay to ensure the sharer is ready
             setTimeout(() => {
-                checkSharerAvailability();
+                attemptCall();
             }, 1000); // Wait 1 second before trying to call
         });
-        
-        // Function to check if sharer is available
-        function checkSharerAvailability() {
-            console.log('Checking if sharer is available...');
-            
-            // Try to list peers to see if our target is available
-            if (peer && peer.listAllPeers) {
-                peer.listAllPeers((peers) => {
-                    console.log('Available peers:', peers);
-                    if (peers.includes(sessionId)) {
-                        console.log('Sharer found, attempting call...');
-                        attemptCall();
-                    } else {
-                        console.log('Sharer not found in peer list');
-                        updateStatus('Screen sharer not found. Please check the session ID.', 'error');
-                        stopViewing();
-                    }
-                });
-            } else {
-                // Fallback: try to call directly
-                console.log('Peer list not available, attempting call directly...');
-                attemptCall();
-            }
-        }
         
         // Function to attempt the call with retry logic
         function attemptCall(retryCount = 0) {
