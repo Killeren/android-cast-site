@@ -279,10 +279,16 @@ async function handleOffer(message) {
 async function handleAnswer(message) {
     console.log('Handling answer from:', message.from);
     console.log('Answer SDP:', message.answer.sdp.substring(0, 200) + '...');
+    console.log('Current peer connection state:', peerConnection ? peerConnection.connectionState : 'null');
     
     try {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
-        console.log('Set remote answer successfully');
+        if (peerConnection && peerConnection.connectionState !== 'closed') {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+            console.log('Set remote answer successfully');
+        } else {
+            console.error('Peer connection is not available or closed');
+            updateStatus('Connection lost. Please try again.', 'error');
+        }
     } catch (error) {
         console.error('Error handling answer:', error);
         updateStatus(`Error handling answer: ${error.message}`, 'error');
@@ -293,13 +299,14 @@ async function handleAnswer(message) {
 async function handleIceCandidate(message) {
     console.log('Handling ICE candidate from:', message.from);
     console.log('ICE candidate:', message.candidate);
+    console.log('Current peer connection state:', peerConnection ? peerConnection.connectionState : 'null');
     
     try {
-        if (peerConnection) {
+        if (peerConnection && peerConnection.connectionState !== 'closed') {
             await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
             console.log('Successfully added ICE candidate');
         } else {
-            console.error('No peer connection available for ICE candidate');
+            console.error('Peer connection is not available or closed for ICE candidate');
         }
     } catch (error) {
         console.error('Error handling ICE candidate:', error);
@@ -418,6 +425,9 @@ async function callPeer(targetPeerId) {
                     console.warn('No ICE candidates generated. Trying fallback approach...');
                     updateStatus('Network connectivity issue. Trying alternative connection method...', 'error');
                     
+                    // Close the original connection
+                    peerConnection.close();
+                    
                     // Try with a simpler ICE configuration
                     const fallbackIceServers = {
                         iceServers: [
@@ -428,10 +438,10 @@ async function callPeer(targetPeerId) {
                     console.log('Trying fallback ICE servers:', fallbackIceServers);
                     
                     // Create a new peer connection with fallback servers
-                    const fallbackConnection = new RTCPeerConnection(fallbackIceServers);
+                    peerConnection = new RTCPeerConnection(fallbackIceServers);
                     
                     // Set up the same event handlers
-                    fallbackConnection.onicecandidate = function(event) {
+                    peerConnection.onicecandidate = function(event) {
                         if (event.candidate) {
                             console.log('Fallback ICE candidate:', event.candidate.type, event.candidate.protocol);
                             signalingSocket.send(JSON.stringify({
@@ -442,13 +452,39 @@ async function callPeer(targetPeerId) {
                         }
                     };
                     
-                    fallbackConnection.onconnectionstatechange = function() {
-                        console.log('Fallback connection state:', fallbackConnection.connectionState);
+                    peerConnection.onconnectionstatechange = function() {
+                        console.log('Fallback connection state:', peerConnection.connectionState);
+                        if (peerConnection.connectionState === 'connected') {
+                            updateStatus('WebRTC connection established!', 'connected');
+                        } else if (peerConnection.connectionState === 'failed') {
+                            updateStatus('WebRTC connection failed', 'error');
+                        }
                     };
                     
+                    peerConnection.oniceconnectionstatechange = function() {
+                        console.log('Fallback ICE connection state:', peerConnection.iceConnectionState);
+                    };
+                    
+                    // Set up ontrack for viewer
+                    if (!isSharing) {
+                        peerConnection.ontrack = function(event) {
+                            console.log('Received remote stream from fallback connection');
+                            if (event.streams && event.streams[0]) {
+                                remoteVideo.srcObject = event.streams[0];
+                                remoteStream = event.streams[0];
+                                isViewing = true;
+                                updateStatus('Connected! Receiving screen share...', 'connected');
+                                
+                                viewScreenBtn.textContent = 'Stop Viewing';
+                                viewScreenBtn.classList.remove('btn--outline');
+                                viewScreenBtn.classList.add('btn--secondary');
+                            }
+                        };
+                    }
+                    
                     // Try to create a new offer with fallback servers
-                    fallbackConnection.createOffer().then(offer => {
-                        fallbackConnection.setLocalDescription(offer);
+                    peerConnection.createOffer().then(offer => {
+                        peerConnection.setLocalDescription(offer);
                         signalingSocket.send(JSON.stringify({
                             type: 'offer',
                             target: targetPeerId,
