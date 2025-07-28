@@ -301,11 +301,12 @@ function viewScreen() {
         peer.on('open', function(id) {
             updateStatus(`Calling screen sharer (${sessionId})...`, 'waiting');
             console.log('Viewer peer opened with ID:', id);
+            console.log('Target sharer ID:', sessionId);
             
             // Add a small delay to ensure the sharer is ready
             setTimeout(() => {
                 attemptCall();
-            }, 1000); // Wait 1 second before trying to call
+            }, 2000); // Wait 2 seconds before trying to call
         });
         
         // Function to attempt the call with retry logic
@@ -313,8 +314,25 @@ function viewScreen() {
             console.log(`Attempting call to sharer (attempt ${retryCount + 1})`);
             console.log('Session ID:', sessionId);
             console.log('Peer object:', peer);
+            console.log('Peer ID:', peer.id);
+            console.log('Peer connection state:', peer.connection ? peer.connection.connectionState : 'No connection');
             
             try {
+                // Check if peer is connected
+                if (!peer.id) {
+                    console.error('Peer not connected yet');
+                    if (retryCount < 3) {
+                        console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
+                        setTimeout(() => {
+                            attemptCall(retryCount + 1);
+                        }, 2000);
+                    } else {
+                        updateStatus('Peer not connected. Please try again.', 'error');
+                        stopViewing();
+                    }
+                    return;
+                }
+                
                 // Call the screen sharer
                 currentCall = peer.call(sessionId, null); // No stream from viewer
                 
@@ -358,6 +376,11 @@ function viewScreen() {
                     });
                 } else {
                     console.error('Failed to create call - peer.call returned null');
+                    console.log('Peer state:', {
+                        id: peer.id,
+                        destroyed: peer.destroyed,
+                        disconnected: peer.disconnected
+                    });
                     
                     // Retry if we haven't retried too many times
                     if (retryCount < 3) {
@@ -389,6 +412,11 @@ function viewScreen() {
         // Handle peer errors
         peer.on('error', function(err) {
             console.error('PeerJS error:', err);
+            console.log('Error details:', {
+                type: err.type,
+                message: err.message,
+                peer: err.peer
+            });
             
             if (err.type === 'peer-unavailable') {
                 updateStatus('Screen sharer not found. Please check the session ID.', 'error');
