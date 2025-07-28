@@ -34,7 +34,17 @@ const iceServers = {
         { urls: 'stun:stun.voiparound.com:3478' },
         { urls: 'stun:stun.voipbuster.com:3478' },
         { urls: 'stun:stun.voipstunt.com:3478' },
-        { urls: 'stun:stun.voxgratia.org:3478' }
+        { urls: 'stun:stun.voxgratia.org:3478' },
+        {
+            urls: 'turn:YOUR_GCP_EXTERNAL_IP:3478?transport=udp',
+            username: 'peeruser',
+            credential: 'peerpass123'
+        },
+        {
+            urls: 'turn:YOUR_GCP_EXTERNAL_IP:3478?transport=tcp',
+            username: 'peeruser',
+            credential: 'peerpass123'
+        }
     ]
 };
 
