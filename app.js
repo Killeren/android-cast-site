@@ -40,6 +40,40 @@ const iceServers = {
 
 console.log('ICE servers configuration:', iceServers);
 
+// Test ICE server connectivity
+async function testIceServers() {
+    try {
+        const testConnection = new RTCPeerConnection(iceServers);
+        console.log('Created test peer connection with ICE servers');
+        
+        testConnection.onicecandidate = function(event) {
+            if (event.candidate) {
+                console.log('Test ICE candidate generated:', event.candidate.type, event.candidate.protocol);
+            } else {
+                console.log('Test ICE gathering complete');
+            }
+        };
+        
+        testConnection.onicegatheringstatechange = function() {
+            console.log('Test ICE gathering state:', testConnection.iceGatheringState);
+        };
+        
+        // Create a dummy offer to trigger ICE gathering
+        const offer = await testConnection.createOffer();
+        await testConnection.setLocalDescription(offer);
+        console.log('Test offer created to trigger ICE gathering');
+        
+        // Clean up after 5 seconds
+        setTimeout(() => {
+            testConnection.close();
+            console.log('Test connection closed');
+        }, 5000);
+        
+    } catch (error) {
+        console.error('Error testing ICE servers:', error);
+    }
+}
+
 // Initialize WebSocket connection to signaling server
 function connectSignaling() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -298,7 +332,9 @@ async function callPeer(targetPeerId) {
     
     try {
         // Create peer connection for sharer
+        console.log('Creating peer connection with ICE servers:', iceServers);
         peerConnection = new RTCPeerConnection(iceServers);
+        console.log('Peer connection created successfully');
         
         // Add local stream only if we're the sharer
         if (localStream && isSharing) {
@@ -571,6 +607,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Check browser compatibility
     checkBrowserCompatibility();
+    
+    // Test ICE servers
+    testIceServers();
     
     // Connect to signaling server
     connectSignaling();
