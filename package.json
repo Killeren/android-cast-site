@@ -1,5 +1,5 @@
 {
-  "name": "android-cast-site",
+  "name": "webrtc-screen-share",
   "version": "1.0.0",
   "description": "WebRTC Screen Sharing Application",
   "main": "server.js",
@@ -9,12 +9,9 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "peerjs": "^1.5.2"
+    "ws": "^8.14.2"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  },
-  "engines": {
-    "node": ">=16.0.0"
-  }
+  "keywords": ["webrtc", "screen-share", "peer-to-peer"],
+  "author": "Your Name",
+  "license": "MIT"
 } 

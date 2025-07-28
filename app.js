@@ -1,13 +1,15 @@
-/**
- * WebRTC Screen Sharing Application using PeerJS
- * This app allows one device to share its screen with another device
- */
-// Global variables
-let peer = null;
+// WebRTC Screen Sharing Application
+// Using native WebRTC with custom signaling server
+
 let localStream = null;
-let currentCall = null;
+let remoteStream = null;
+let peerConnection = null;
+let signalingSocket = null;
+let currentSessionId = null;
 let isSharing = false;
 let isViewing = false;
+let myPeerId = null;
+
 // DOM elements
 const sessionIdInput = document.getElementById('sessionId');
 const generateIdBtn = document.getElementById('generateId');
@@ -16,227 +18,323 @@ const viewScreenBtn = document.getElementById('viewScreen');
 const statusDiv = document.getElementById('status');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
-/**
- * Initialize the application when DOM is loaded
- */
-document.addEventListener('DOMContentLoaded', function() {
-    // Check browser compatibility
-    checkBrowserCompatibility();
+
+// ICE servers configuration (using your TURN server)
+const iceServers = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        {
+            urls: 'turn:35.200.221.49:3478?transport=tcp',
+            username: 'peeruser',
+            credential: 'peerpass123'
+        },
+        {
+            urls: 'turn:35.200.221.49:3478?transport=udp',
+            username: 'peeruser',
+            credential: 'peerpass123'
+        }
+    ]
+};
+
+// Initialize WebSocket connection to signaling server
+function connectSignaling() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+    const wsUrl = `${protocol}//${host}:${port}`;
     
-    // Add event listeners to buttons
-    generateIdBtn.addEventListener('click', generateSessionId);
-    startShareBtn.addEventListener('click', startScreenShare);
-    viewScreenBtn.addEventListener('click', viewScreen);
+    console.log('Connecting to signaling server:', wsUrl);
     
-    // Add input validation
-    sessionIdInput.addEventListener('input', validateSessionId);
+    signalingSocket = new WebSocket(wsUrl);
     
-    updateStatus('Ready to connect');
-});
-/**
- * Generate a random 6-digit session ID
- */
-function generateSessionId() {
-    // Generate a random 6-character alphanumeric string
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let sessionId = '';
+    signalingSocket.onopen = function() {
+        console.log('Connected to signaling server');
+        updateStatus('Connected to signaling server', 'connected');
+    };
     
-    for (let i = 0; i < 6; i++) {
-        sessionId += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
+    signalingSocket.onmessage = function(event) {
+        const message = JSON.parse(event.data);
+        console.log('Received signaling message:', message);
+        
+        switch (message.type) {
+            case 'registered':
+                console.log('Registered with signaling server:', message);
+                myPeerId = message.peerId;
+                break;
+                
+            case 'offer':
+                handleOffer(message);
+                break;
+                
+            case 'answer':
+                handleAnswer(message);
+                break;
+                
+            case 'ice-candidate':
+                handleIceCandidate(message);
+                break;
+                
+            case 'peer-list':
+                handlePeerList(message);
+                break;
+                
+            case 'error':
+                console.error('Signaling error:', message.message);
+                updateStatus(`Signaling error: ${message.message}`, 'error');
+                break;
+                
+            case 'pong':
+                console.log('Received pong from server');
+                break;
+        }
+    };
     
-    sessionIdInput.value = sessionId;
-    updateStatus('Session ID generated: ' + sessionId);
+    signalingSocket.onclose = function() {
+        console.log('Disconnected from signaling server');
+        updateStatus('Disconnected from signaling server', 'error');
+    };
+    
+    signalingSocket.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        updateStatus('Connection error', 'error');
+    };
 }
-/**
- * Validate session ID input (6 characters, alphanumeric)
- */
-function validateSessionId() {
-    const value = sessionIdInput.value.toUpperCase();
-    sessionIdInput.value = value.slice(0, 6); // Limit to 6 characters
+
+// Register with signaling server
+function registerWithServer(sessionId, isSharer = false) {
+    if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+        const message = {
+            type: 'register',
+            peerId: `peer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            sessionId: sessionId,
+            isSharer: isSharer
+        };
+        
+        console.log('Registering with server:', message);
+        signalingSocket.send(JSON.stringify(message));
+    }
 }
-/**
- * Start screen sharing (sender mode)
- */
-async function startScreenShare() {
-    const sessionId = sessionIdInput.value.trim();
-    
-    // Validate session ID before proceeding
-    if (!sessionId) {
-        alert('Please enter or generate a session ID');
-        return;
-    }
-    
-    if (isSharing) {
-        stopScreenShare();
-        return;
-    }
+
+// Handle incoming offer
+async function handleOffer(message) {
+    console.log('Handling offer from:', message.from);
     
     try {
-        updateStatus('Requesting screen share permission...', 'waiting');
-        disableButtons(true);
+        // Create peer connection for viewer
+        peerConnection = new RTCPeerConnection(iceServers);
         
-        // Check if screen sharing is supported
+        // Set up event handlers
+        peerConnection.ontrack = function(event) {
+            console.log('Received remote stream');
+            remoteVideo.srcObject = event.streams[0];
+            remoteStream = event.streams[0];
+            isViewing = true;
+            updateStatus('Connected! Receiving screen share...', 'connected');
+            
+            viewScreenBtn.textContent = 'Stop Viewing';
+            viewScreenBtn.classList.remove('btn--outline');
+            viewScreenBtn.classList.add('btn--secondary');
+        };
+        
+        peerConnection.onicecandidate = function(event) {
+            if (event.candidate) {
+                console.log('Sending ICE candidate');
+                signalingSocket.send(JSON.stringify({
+                    type: 'ice-candidate',
+                    target: message.from,
+                    candidate: event.candidate
+                }));
+            }
+        };
+        
+        peerConnection.onconnectionstatechange = function() {
+            console.log('Connection state:', peerConnection.connectionState);
+            if (peerConnection.connectionState === 'connected') {
+                updateStatus('WebRTC connection established!', 'connected');
+            } else if (peerConnection.connectionState === 'failed') {
+                updateStatus('WebRTC connection failed', 'error');
+            }
+        };
+        
+        // Set remote description
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
+        
+        // Create answer
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        
+        // Send answer
+        signalingSocket.send(JSON.stringify({
+            type: 'answer',
+            target: message.from,
+            answer: answer
+        }));
+        
+    } catch (error) {
+        console.error('Error handling offer:', error);
+        updateStatus(`Error handling offer: ${error.message}`, 'error');
+    }
+}
+
+// Handle incoming answer
+async function handleAnswer(message) {
+    console.log('Handling answer from:', message.from);
+    
+    try {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+    } catch (error) {
+        console.error('Error handling answer:', error);
+        updateStatus(`Error handling answer: ${error.message}`, 'error');
+    }
+}
+
+// Handle ICE candidate
+async function handleIceCandidate(message) {
+    console.log('Handling ICE candidate from:', message.from);
+    
+    try {
+        if (peerConnection) {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+        }
+    } catch (error) {
+        console.error('Error handling ICE candidate:', error);
+    }
+}
+
+// Handle peer list
+function handlePeerList(message) {
+    console.log('Available peers:', message.peers);
+    
+    if (message.peers.length > 0) {
+        const sharer = message.peers.find(peer => peer.isSharer);
+        if (sharer) {
+            console.log('Found sharer:', sharer.id);
+            callPeer(sharer.id);
+        } else {
+            updateStatus('No sharer found in session', 'error');
+        }
+    } else {
+        updateStatus('No peers found in session', 'error');
+    }
+}
+
+// Call a specific peer
+async function callPeer(targetPeerId) {
+    console.log('Calling peer:', targetPeerId);
+    
+    try {
+        // Create peer connection for sharer
+        peerConnection = new RTCPeerConnection(iceServers);
+        
+        // Add local stream
+        if (localStream) {
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+        }
+        
+        // Set up event handlers
+        peerConnection.onicecandidate = function(event) {
+            if (event.candidate) {
+                console.log('Sending ICE candidate');
+                signalingSocket.send(JSON.stringify({
+                    type: 'ice-candidate',
+                    target: targetPeerId,
+                    candidate: event.candidate
+                }));
+            }
+        };
+        
+        peerConnection.onconnectionstatechange = function() {
+            console.log('Connection state:', peerConnection.connectionState);
+            if (peerConnection.connectionState === 'connected') {
+                updateStatus('WebRTC connection established!', 'connected');
+            } else if (peerConnection.connectionState === 'failed') {
+                updateStatus('WebRTC connection failed', 'error');
+            }
+        };
+        
+        // Create offer
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        
+        // Send offer
+        signalingSocket.send(JSON.stringify({
+            type: 'offer',
+            target: targetPeerId,
+            offer: offer
+        }));
+        
+    } catch (error) {
+        console.error('Error calling peer:', error);
+        updateStatus(`Error calling peer: ${error.message}`, 'error');
+    }
+}
+
+// Start screen sharing
+async function startScreenShare() {
+    try {
+        updateStatus('Requesting screen share permission...', 'waiting');
+        
+        // Check browser compatibility
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
             throw new Error('Screen sharing is not supported in this browser. Please use Chrome, Firefox, or Safari.');
         }
         
-        // Check if we're on HTTPS (required for screen sharing)
         if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
             throw new Error('Screen sharing requires HTTPS. Please access this site via HTTPS.');
         }
         
-        // Request screen capture
+        // Get screen stream
         localStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
-                cursor: "always",
-                displaySurface: "monitor"
+                cursor: 'always'
             },
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                sampleRate: 44100
-            }
+            audio: false
         });
         
-        // Show local stream
+        // Display local video
         localVideo.srcObject = localStream;
-        updateStatus('Screen capture started. Waiting for viewer...', 'waiting');
         
-        // Initialize PeerJS connection
-        peer = new Peer(sessionId, {
-            host: '0.peerjs.com',
-            port: 443,
-            path: '/',
-            secure: true,
-            config: {
-              iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                {
-                  urls: 'turn:35.200.221.49:3478?transport=tcp',
-                  username: 'peeruser',
-                  credential: 'peerpass123'
-                },
-                {
-                  urls: 'turn:35.200.221.49:3478?transport=udp',
-                  username: 'peeruser',
-                  credential: 'peerpass123'
-                }
-              ]
-            }
-        });
+        // Get session ID
+        const sessionId = sessionIdInput.value.trim();
+        if (!sessionId) {
+            throw new Error('Please enter a session ID');
+        }
         
-        // Handle peer connection events
-        peer.on('open', function(id) {
-            updateStatus(`Sharing screen with ID: ${id}. Waiting for viewer...`, 'waiting');
-            isSharing = true;
-            startShareBtn.textContent = 'Stop Sharing';
-            startShareBtn.classList.remove('btn--primary');
-            startShareBtn.classList.add('btn--secondary');
-            console.log('Peer connection opened with ID:', id);
-            console.log('Sharer is ready to receive calls');
-        });
+        currentSessionId = sessionId;
         
-        // Handle incoming calls from viewers
-        peer.on('call', function(call) {
-            updateStatus('Viewer connected! Answering call...', 'waiting');
-            console.log('Incoming call from viewer:', call);
-            console.log('Call metadata:', call.metadata);
-            
-            try {
-                // Answer the call with our screen stream
-                call.answer(localStream);
-                currentCall = call;
-                console.log('Call answered successfully');
-                
-                // Handle call events
-                call.on('stream', function(remoteStream) {
-                    // Viewers don't typically send video back, but handle it just in case
-                    console.log('Received stream from viewer');
-                });
-                
-                call.on('close', function() {
-                    updateStatus('Viewer disconnected', 'waiting');
-                    console.log('Call closed by viewer');
-                    if (isSharing) {
-                        updateStatus(`Still sharing screen with ID: ${sessionIdInput.value}. Waiting for new viewer...`, 'waiting');
-                    }
-                });
-                
-                call.on('error', function(err) {
-                    console.error('Call error:', err);
-                    updateStatus(`Call error: ${err.message}`, 'error');
-                });
-                
-                updateStatus('Connected to viewer!', 'connected');
-            } catch (error) {
-                console.error('Error answering call:', error);
-                updateStatus(`Error answering call: ${error.message}`, 'error');
-            }
-        });
+        // Register as sharer
+        registerWithServer(sessionId, true);
         
-        // Handle peer errors
-        peer.on('error', function(err) {
-            console.error('PeerJS error:', err);
-            updateStatus(`Connection error: ${err.message}`, 'error');
-            stopScreenShare();
-        });
+        updateStatus(`Sharing screen with ID: ${sessionId}. Waiting for viewer...`, 'waiting');
+        isSharing = true;
         
-        // Handle peer disconnection
-        peer.on('disconnected', function() {
-            console.log('Peer disconnected');
-            updateStatus('Connection lost. Reconnecting...', 'error');
-        });
+        startShareBtn.textContent = 'Stop Sharing';
+        startShareBtn.classList.remove('btn--primary');
+        startShareBtn.classList.add('btn--secondary');
         
-        peer.on('reconnected', function() {
-            console.log('Peer reconnected');
-            updateStatus('Connection restored', 'connected');
-        });
-        
-        // Handle when screen share is stopped by user
-        localStream.getVideoTracks()[0].addEventListener('ended', function() {
-            updateStatus('Screen sharing stopped by user');
-            stopScreenShare();
-        });
+        console.log('Screen sharing started');
         
     } catch (error) {
         console.error('Error starting screen share:', error);
-        
-        // Provide specific error messages
-        if (error.name === 'NotAllowedError') {
-            updateStatus('Screen sharing permission denied. Please allow screen sharing and try again.', 'error');
-        } else if (error.name === 'NotSupportedError') {
-            updateStatus('Screen sharing is not supported in this browser. Please use Chrome, Firefox, or Safari.', 'error');
-        } else if (error.message.includes('HTTPS')) {
-            updateStatus('Screen sharing requires HTTPS. Please access this site via HTTPS.', 'error');
-        } else {
-            updateStatus(`Failed to start screen sharing: ${error.message}`, 'error');
-        }
-        
+        updateStatus(`Error starting screen share: ${error.message}`, 'error');
         stopScreenShare();
-    } finally {
-        disableButtons(false);
     }
 }
-/**
- * Stop screen sharing
- */
+
+// Stop screen sharing
 function stopScreenShare() {
     if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
         localStream = null;
     }
     
-    if (currentCall) {
-        currentCall.close();
-        currentCall = null;
-    }
-    
-    if (peer) {
-        peer.destroy();
-        peer = null;
+    if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
     }
     
     localVideo.srcObject = null;
@@ -247,493 +345,49 @@ function stopScreenShare() {
     startShareBtn.classList.add('btn--primary');
     
     updateStatus('Screen sharing stopped');
+    console.log('Screen sharing stopped');
 }
-/**
- * View screen from another device (receiver mode)
- */
-function viewScreen() {
-    const sessionId = sessionIdInput.value.trim();
-    
-    // Validate session ID before proceeding
-    if (!sessionId) {
-        alert('Please enter the session ID you want to connect to');
-        return;
-    }
-    
-    if (isViewing) {
-        stopViewing();
-        return;
-    }
-    
+
+// Start viewing screen
+async function startViewing() {
     try {
         updateStatus('Connecting to screen share...', 'waiting');
-        disableButtons(true);
         
-        // Generate unique viewer ID
-        const viewerId = 'viewer-' + Math.random().toString(36).slice(2, 8);
-        
-        // Initialize PeerJS connection
-        peer = new Peer(viewerId, {
-            host: '0.peerjs.com',
-            port: 443,
-            path: '/',
-            secure: true,
-            config: {
-              iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                {
-                  urls: 'turn:35.200.221.49:3478?transport=tcp',
-                  username: 'peeruser',
-                  credential: 'peerpass123'
-                },
-                {
-                  urls: 'turn:35.200.221.49:3478?transport=udp',
-                  username: 'peeruser',
-                  credential: 'peerpass123'
-                }
-              ]
-            }
-        });
-        
-        // Test PeerJS server connectivity
-        console.log('Testing PeerJS server connectivity...');
-        console.log('PeerJS configuration:', {
-            host: '0.peerjs.com',
-            port: 443,
-            path: '/',
-            secure: true
-        });
-        
-        // Handle peer connection events
-        peer.on('open', function(id) {
-            updateStatus(`Calling screen sharer (${sessionId})...`, 'waiting');
-            console.log('Viewer peer opened with ID:', id);
-            console.log('Target sharer ID:', sessionId);
-            console.log('PeerJS server connection established');
-            console.log('Peer object details:', {
-                id: peer.id,
-                destroyed: peer.destroyed,
-                disconnected: peer.disconnected,
-                connection: peer.connection ? peer.connection.connectionState : 'No connection'
-            });
-            
-            // Test if peer.call method exists and is working
-            console.log('Testing peer.call method...');
-            console.log('typeof peer.call:', typeof peer.call);
-            console.log('peer.call available:', peer.call !== undefined);
-            
-            // Add a small delay to ensure the sharer is ready
-            setTimeout(() => {
-                attemptCall();
-            }, 2000); // Wait 2 seconds before trying to call
-        });
-        
-        // Function to attempt the call with retry logic
-        function attemptCall(retryCount = 0) {
-            console.log(`Attempting call to sharer (attempt ${retryCount + 1})`);
-            console.log('Session ID:', sessionId);
-            console.log('Peer object:', peer);
-            
-            // Check if peer object is valid
-            if (!peer) {
-                console.error('Peer object is null - connection was lost');
-                updateStatus('Connection lost. Please try again.', 'error');
-                stopViewing();
-                return;
-            }
-            
-            console.log('Peer ID:', peer.id);
-            console.log('Peer connection state:', peer.connection ? peer.connection.connectionState : 'No connection');
-            
-            try {
-                // Check if peer is connected
-                if (!peer || peer.destroyed || peer.disconnected) {
-                    console.error('Peer not connected or destroyed. Attempting to reconnect...');
-                    if (retryCount < 3) {
-                        console.log(`Retrying peer connection in 2 seconds... (attempt ${retryCount + 1})`);
-                        setTimeout(() => {
-                            attemptCall(retryCount + 1);
-                        }, 2000);
-                    } else {
-                        updateStatus('Failed to connect to screen sharer. Please try again.', 'error');
-                        stopViewing();
-                    }
-                    return;
-                }
-                
-                // Validate session ID format
-                if (!sessionId || sessionId.length !== 6) {
-                    console.error('Invalid session ID format');
-                    updateStatus('Invalid session ID. Please check the session ID.', 'error');
-                    stopViewing();
-                    return;
-                }
-                
-                console.log('Attempting to call sharer with session ID:', sessionId);
-                
-                // Test if peer.call method exists
-                if (typeof peer.call !== 'function') {
-                    console.error('peer.call is not a function');
-                    updateStatus('PeerJS connection error. Please refresh and try again.', 'error');
-                    stopViewing();
-                    return;
-                }
-                
-                console.log('peer.call method details:', {
-                    type: typeof peer.call,
-                    isFunction: typeof peer.call === 'function',
-                    toString: peer.call.toString().substring(0, 100) + '...'
-                });
-                
-                // Call the screen sharer
-                console.log('About to call peer.call with session ID:', sessionId);
-                currentCall = peer.call(sessionId, null); // No stream from viewer
-                
-                console.log('peer.call result:', currentCall);
-                console.log('Call object type:', typeof currentCall);
-                console.log('Call object:', currentCall);
-                
-                if (currentCall) {
-                    console.log('Call initiated to sharer:', sessionId);
-                    console.log('Call object:', currentCall);
-                    
-                    // Handle incoming stream from screen sharer
-                    currentCall.on('stream', function(remoteStream) {
-                        updateStatus('Connected! Receiving screen share...', 'connected');
-                        console.log('Received stream from sharer');
-                        remoteVideo.srcObject = remoteStream;
-                        isViewing = true;
-                        
-                        viewScreenBtn.textContent = 'Stop Viewing';
-                        viewScreenBtn.classList.remove('btn--outline');
-                        viewScreenBtn.classList.add('btn--secondary');
-                    });
-                    
-                    // Handle call end
-                    currentCall.on('close', function() {
-                        updateStatus('Screen share ended');
-                        console.log('Call closed by sharer');
-                        stopViewing();
-                    });
-                    
-                    // Handle call errors
-                    currentCall.on('error', function(err) {
-                        console.error('Call error:', err);
-                        
-                        // Retry if it's a peer-unavailable error and we haven't retried too many times
-                        if (err.type === 'peer-unavailable' && retryCount < 3) {
-                            console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
-                            setTimeout(() => {
-                                attemptCall(retryCount + 1);
-                            }, 2000);
-                        } else {
-                            updateStatus(`Call failed: ${err.message}`, 'error');
-                            stopViewing();
-                        }
-                    });
-                } else {
-                    console.error('Failed to create call - peer.call returned null');
-                    console.log('Peer state:', {
-                        id: peer.id,
-                        destroyed: peer.destroyed,
-                        disconnected: peer.disconnected
-                    });
-                    
-                    // Check if this might be a session ID issue
-                    if (retryCount === 0) {
-                        console.log('First attempt failed. This might be because:');
-                        console.log('1. The sharer is not actually sharing with this session ID');
-                        console.log('2. The session ID is incorrect');
-                        console.log('3. The sharer is not connected to the PeerJS server');
-                        console.log('4. The PeerJS server is not working properly');
-                        
-                        // Note: listAllPeers is not supported by 0.peerjs.com
-                        console.log('Server does not support listing peers - this is normal for 0.peerjs.com');
-                    }
-                    
-                    // Retry if we haven't retried too many times
-                    if (retryCount < 3) {
-                        console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
-                        setTimeout(() => {
-                            attemptCall(retryCount + 1);
-                        }, 2000);
-                    } else {
-                        updateStatus('Failed to create call. Please check that the sharer is active and the session ID is correct.', 'error');
-                        stopViewing();
-                    }
-                }
-            } catch (error) {
-                console.error('Error creating call:', error);
-                
-                // Retry if we haven't retried too many times
-                if (retryCount < 3) {
-                    console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
-                    setTimeout(() => {
-                        attemptCall(retryCount + 1);
-                    }, 2000);
-                } else {
-                    updateStatus(`Call creation error: ${error.message}`, 'error');
-                    stopViewing();
-                }
-            }
+        // Get session ID
+        const sessionId = sessionIdInput.value.trim();
+        if (!sessionId) {
+            throw new Error('Please enter a session ID');
         }
         
-        // Handle peer errors
-        peer.on('error', function(err) {
-            console.error('PeerJS error:', err);
-            console.log('Error details:', {
-                type: err.type,
-                message: err.message,
-                peer: err.peer
-            });
-            
-            if (err.type === 'peer-unavailable') {
-                updateStatus('Screen sharer not found. Please check the session ID.', 'error');
-            } else if (err.type === 'network') {
-                updateStatus('Network error. Please check your internet connection.', 'error');
-            } else if (err.type === 'server-error') {
-                console.log('PeerJS server error detected - trying fallback server...');
-                
-                // Try fallback server if this is the first server
-                if (peer && peer.host === '0.peerjs.com') {
-                    console.log('Switching to fallback PeerJS server...');
-                    peer.destroy();
-                    
-                    // Create new peer with fallback server
-                    peer = new Peer(sessionId, {
-                        host: 'peerjs-server.herokuapp.com',
-                        port: 443,
-                        path: '/',
-                        secure: true,
-                        config: {
-                          iceServers: [
-                            { urls: 'stun:stun.l.google.com:19302' },
-                            { urls: 'stun:stun1.l.google.com:19302' },
-                            { urls: 'stun:stun2.l.google.com:19302' },
-                            {
-                              urls: 'turn:35.200.221.49:3478?transport=tcp',
-                              username: 'peeruser',
-                              credential: 'peerpass123'
-                            },
-                            {
-                              urls: 'turn:35.200.221.49:3478?transport=udp',
-                              username: 'peeruser',
-                              credential: 'peerpass123'
-                            }
-                          ]
-                        }
-                    });
-                    
-                    // Set up event handlers for fallback peer
-                    peer.on('open', function(id) {
-                        console.log('Fallback PeerJS server connected with ID:', id);
-                        updateStatus(`Sharing screen with ID: ${id}. Waiting for viewer...`, 'waiting');
-                        isSharing = true;
-                        startShareBtn.textContent = 'Stop Sharing';
-                        startShareBtn.classList.remove('btn--primary');
-                        startShareBtn.classList.add('btn--secondary');
-                    });
-                    
-                    peer.on('error', function(err) {
-                        console.error('Fallback PeerJS error:', err);
-                        updateStatus('All PeerJS servers failed. Please try again later.', 'error');
-                        stopScreenShare();
-                    });
-                    
-                    // Set up call handling for fallback peer
-                    peer.on('call', function(call) {
-                        updateStatus('Viewer connected! Answering call...', 'waiting');
-                        console.log('Incoming call from viewer:', call);
-                        
-                        try {
-                            call.answer(localStream);
-                            currentCall = call;
-                            console.log('Call answered successfully');
-                            
-                            call.on('stream', function(remoteStream) {
-                                console.log('Received stream from viewer');
-                            });
-                            
-                            call.on('close', function() {
-                                updateStatus('Viewer disconnected', 'waiting');
-                                console.log('Call closed by viewer');
-                                if (isSharing) {
-                                    updateStatus(`Still sharing screen with ID: ${sessionIdInput.value}. Waiting for new viewer...`, 'waiting');
-                                }
-                            });
-                            
-                            call.on('error', function(err) {
-                                console.error('Call error:', err);
-                                updateStatus(`Call error: ${err.message}`, 'error');
-                            });
-                            
-                            updateStatus('Connected to viewer!', 'connected');
-                        } catch (error) {
-                            console.error('Error answering call:', error);
-                            updateStatus(`Error answering call: ${error.message}`, 'error');
-                        }
-                    });
-                } else {
-                    updateStatus('PeerJS server error. Please try again later.', 'error');
-                }
-            } else {
-                updateStatus(`Connection error: ${err.message}`, 'error');
-            }
-            
-            stopViewing();
-        });
+        currentSessionId = sessionId;
         
-        // Handle peer disconnection
-        peer.on('disconnected', function() {
-            console.log('Viewer peer disconnected');
-            updateStatus('Connection lost. Reconnecting...', 'error');
-        });
+        // Register as viewer
+        registerWithServer(sessionId, false);
         
-        peer.on('reconnected', function() {
-            console.log('Viewer peer reconnected');
-            updateStatus('Connection restored', 'connected');
-        });
+        updateStatus('Calling screen sharer...', 'waiting');
         
-        // Timeout if connection takes too long
+        // Wait a bit for registration, then request peer list
         setTimeout(() => {
-            if (!isViewing && peer) {
-                console.log('Connection timeout - trying fallback PeerJS server...');
-                
-                // Try a different PeerJS server as fallback
-                if (peer.host === '0.peerjs.com') {
-                    console.log('Switching to peerjs-server.herokuapp.com...');
-                    peer.destroy();
-                    
-                    // Create new peer with different server
-                    peer = new Peer(viewerId, {
-                        host: 'peerjs-server.herokuapp.com',
-                        port: 443,
-                        path: '/',
-                        secure: true,
-                        config: {
-                          iceServers: [
-                            { urls: 'stun:stun.l.google.com:19302' },
-                            { urls: 'stun:stun1.l.google.com:19302' },
-                            { urls: 'stun:stun2.l.google.com:19302' },
-                            {
-                              urls: 'turn:35.200.221.49:3478?transport=tcp',
-                              username: 'peeruser',
-                              credential: 'peerpass123'
-                            },
-                            {
-                              urls: 'turn:35.200.221.49:3478?transport=udp',
-                              username: 'peeruser',
-                              credential: 'peerpass123'
-                            }
-                          ]
-                        }
-                    });
-                    
-                    // Set up event handlers for fallback peer
-                    peer.on('open', function(id) {
-                        console.log('Fallback PeerJS server connected with ID:', id);
-                        setTimeout(() => {
-                            attemptCall();
-                        }, 2000);
-                    });
-                    
-                    peer.on('error', function(err) {
-                        console.error('Fallback PeerJS error:', err);
-                        updateStatus('All PeerJS servers failed. Please try again later.', 'error');
-                        stopViewing();
-                    });
-                } else {
-                    updateStatus('Connection timeout. Please try again.', 'error');
-                    stopViewing();
-                }
+            if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+                signalingSocket.send(JSON.stringify({
+                    type: 'list-peers',
+                    sessionId: sessionId
+                }));
             }
-        }, 10000);
-        
-        // Also try a simple test to see if we can connect to a known peer
-        setTimeout(() => {
-            if (!isViewing && peer && peer.id) {
-                console.log('Testing PeerJS connectivity with a simple ping...');
-                
-                // Try to call a non-existent peer to test if the server is working
-                const testCall = peer.call('test-peer-' + Date.now(), null);
-                console.log('Test call result:', testCall);
-                
-                if (testCall) {
-                    console.log('PeerJS server is working, but target peer might not exist');
-                    testCall.close();
-                } else {
-                    console.log('PeerJS server is not working properly');
-                    
-                    // Try the fallback server immediately
-                    console.log('Trying fallback server immediately...');
-                    if (peer && peer.host === '0.peerjs.com') {
-                        peer.destroy();
-                        
-                        // Create new peer with fallback server
-                        peer = new Peer(viewerId, {
-                            host: 'peerjs-server.herokuapp.com',
-                            port: 443,
-                            path: '/',
-                            secure: true,
-                            config: {
-                              iceServers: [
-                                { urls: 'stun:stun.l.google.com:19302' },
-                                { urls: 'stun:stun1.l.google.com:19302' },
-                                { urls: 'stun:stun2.l.google.com:19302' },
-                                {
-                                  urls: 'turn:35.200.221.49:3478?transport=tcp',
-                                  username: 'peeruser',
-                                  credential: 'peerpass123'
-                                },
-                                {
-                                  urls: 'turn:35.200.221.49:3478?transport=udp',
-                                  username: 'peeruser',
-                                  credential: 'peerpass123'
-                                }
-                              ]
-                            }
-                        });
-                        
-                        // Set up event handlers for fallback peer
-                        peer.on('open', function(id) {
-                            console.log('Fallback PeerJS server connected with ID:', id);
-                            setTimeout(() => {
-                                attemptCall();
-                            }, 2000);
-                        });
-                        
-                        peer.on('error', function(err) {
-                            console.error('Fallback PeerJS error:', err);
-                            updateStatus('All PeerJS servers failed. Please try again later.', 'error');
-                            stopViewing();
-                        });
-                    }
-                }
-            }
-        }, 5000);
+        }, 1000);
         
     } catch (error) {
         console.error('Error viewing screen:', error);
-        updateStatus('Failed to connect to screen share', 'error');
+        updateStatus(`Error viewing screen: ${error.message}`, 'error');
         stopViewing();
-    } finally {
-        disableButtons(false);
     }
 }
-/**
- * Stop viewing screen share
- */
+
+// Stop viewing screen
 function stopViewing() {
-    if (currentCall) {
-        currentCall.close();
-        currentCall = null;
-    }
-    
-    if (peer) {
-        peer.destroy();
-        peer = null;
+    if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
     }
     
     remoteVideo.srcObject = null;
@@ -744,59 +398,32 @@ function stopViewing() {
     viewScreenBtn.classList.add('btn--outline');
     
     updateStatus('Stopped viewing screen share');
+    console.log('Stopped viewing screen share');
 }
-/**
- * Update status message with optional styling
- */
-function updateStatus(message, type = '') {
+
+// Update status message
+function updateStatus(message, type = 'info') {
     statusDiv.textContent = message;
-    
-    // Remove all status classes
-    statusDiv.classList.remove('connected', 'error', 'waiting');
-    
-    // Add appropriate class based on type
-    if (type) {
-        statusDiv.classList.add(type);
-    }
-    
+    statusDiv.className = `status-message ${type}`;
     console.log('Status:', message);
 }
-/**
- * Disable/enable buttons during connection attempts
- */
-function disableButtons(disabled) {
-    generateIdBtn.disabled = disabled;
-    
-    if (!isSharing) {
-        startShareBtn.disabled = disabled;
-    }
-    
-    if (!isViewing) {
-        viewScreenBtn.disabled = disabled;
-    }
-}
-/**
- * Clean up connections when page is unloaded
- */
-window.addEventListener('beforeunload', function() {
-    if (isSharing) {
-        stopScreenShare();
-    }
-    
-    if (isViewing) {
-        stopViewing();
-    }
-});
 
-/**
- * Check browser compatibility for screen sharing
- */
+// Generate random session ID
+function generateSessionId() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    sessionIdInput.value = result;
+    updateStatus(`Session ID generated: ${result}`);
+}
+
+// Check browser compatibility
 function checkBrowserCompatibility() {
     const isHTTPS = location.protocol === 'https:' || location.hostname === 'localhost';
     const hasScreenShare = navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia;
     const userAgent = navigator.userAgent.toLowerCase();
-    
-    // More flexible browser detection
     const isChrome = userAgent.includes('chrome') && !userAgent.includes('edg');
     const isFirefox = userAgent.includes('firefox');
     const isSafari = userAgent.includes('safari') && !userAgent.includes('chrome');
@@ -805,22 +432,63 @@ function checkBrowserCompatibility() {
     
     console.log('Browser compatibility:', {
         isHTTPS,
-        hasScreenShare,
         userAgent: navigator.userAgent,
         isChrome,
         isFirefox,
-        isSafari,
-        isEdge,
+        hasScreenShare,
         isModernBrowser
     });
     
     if (!isHTTPS) {
         updateStatus('⚠️ HTTPS required for screen sharing. Please access via HTTPS.', 'warning');
     } else if (!hasScreenShare) {
-        updateStatus('⚠️ Screen sharing not supported in this browser. Use Chrome, Firefox, Safari, or Edge.', 'warning');
+        updateStatus('⚠️ Screen sharing not supported in this browser. Please use Chrome, Firefox, or Safari.', 'warning');
     } else if (!isModernBrowser) {
-        updateStatus('⚠️ For best experience, use Chrome, Firefox, Safari, or Edge.', 'warning');
+        updateStatus('⚠️ Please use a modern browser for best compatibility.', 'warning');
     } else {
-        updateStatus('✅ Browser compatible for screen sharing', 'connected');
+        updateStatus('✅ Browser compatible for screen sharing');
     }
 }
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('WebRTC Screen Share App loaded');
+    
+    // Check browser compatibility
+    checkBrowserCompatibility();
+    
+    // Connect to signaling server
+    connectSignaling();
+    
+    // Generate initial session ID
+    generateSessionId();
+    
+    // Set up event listeners
+    generateIdBtn.addEventListener('click', generateSessionId);
+    
+    startShareBtn.addEventListener('click', function() {
+        if (isSharing) {
+            stopScreenShare();
+        } else {
+            startScreenShare();
+        }
+    });
+    
+    viewScreenBtn.addEventListener('click', function() {
+        if (isViewing) {
+            stopViewing();
+        } else {
+            startViewing();
+        }
+    });
+    
+    // Handle session ID input
+    sessionIdInput.addEventListener('input', function() {
+        const sessionId = this.value.trim();
+        if (sessionId.length === 6) {
+            updateStatus('Ready to connect');
+        } else {
+            updateStatus('Enter a 6-character session ID');
+        }
+    });
+});
