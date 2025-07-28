@@ -105,7 +105,7 @@ async function startScreenShare() {
         
         // Initialize PeerJS connection
         peer = new Peer(sessionId, {
-            host: 'peerjs-server.herokuapp.com',
+            host: '0.peerjs.com',
             port: 443,
             path: '/',
             secure: true,
@@ -274,7 +274,7 @@ function viewScreen() {
         
         // Initialize PeerJS connection
         peer = new Peer(viewerId, {
-            host: 'peerjs-server.herokuapp.com',
+            host: '0.peerjs.com',
             port: 443,
             path: '/',
             secure: true,
@@ -300,7 +300,7 @@ function viewScreen() {
         // Test PeerJS server connectivity
         console.log('Testing PeerJS server connectivity...');
         console.log('PeerJS configuration:', {
-            host: 'peerjs-server.herokuapp.com',
+            host: '0.peerjs.com',
             port: 443,
             path: '/',
             secure: true
@@ -497,13 +497,13 @@ function viewScreen() {
                 console.log('PeerJS server error detected - trying fallback server...');
                 
                 // Try fallback server if this is the first server
-                if (peer && peer.host === 'peerjs-server.herokuapp.com') {
+                if (peer && peer.host === '0.peerjs.com') {
                     console.log('Switching to fallback PeerJS server...');
                     peer.destroy();
                     
                     // Create new peer with fallback server
-                    peer = new Peer(viewerId, {
-                        host: '0.peerjs.com',
+                    peer = new Peer(sessionId, {
+                        host: 'peerjs-server.herokuapp.com',
                         port: 443,
                         path: '/',
                         secure: true,
@@ -529,15 +529,51 @@ function viewScreen() {
                     // Set up event handlers for fallback peer
                     peer.on('open', function(id) {
                         console.log('Fallback PeerJS server connected with ID:', id);
-                        setTimeout(() => {
-                            attemptCall();
-                        }, 2000);
+                        updateStatus(`Sharing screen with ID: ${id}. Waiting for viewer...`, 'waiting');
+                        isSharing = true;
+                        startShareBtn.textContent = 'Stop Sharing';
+                        startShareBtn.classList.remove('btn--primary');
+                        startShareBtn.classList.add('btn--secondary');
                     });
                     
                     peer.on('error', function(err) {
                         console.error('Fallback PeerJS error:', err);
                         updateStatus('All PeerJS servers failed. Please try again later.', 'error');
-                        stopViewing();
+                        stopScreenShare();
+                    });
+                    
+                    // Set up call handling for fallback peer
+                    peer.on('call', function(call) {
+                        updateStatus('Viewer connected! Answering call...', 'waiting');
+                        console.log('Incoming call from viewer:', call);
+                        
+                        try {
+                            call.answer(localStream);
+                            currentCall = call;
+                            console.log('Call answered successfully');
+                            
+                            call.on('stream', function(remoteStream) {
+                                console.log('Received stream from viewer');
+                            });
+                            
+                            call.on('close', function() {
+                                updateStatus('Viewer disconnected', 'waiting');
+                                console.log('Call closed by viewer');
+                                if (isSharing) {
+                                    updateStatus(`Still sharing screen with ID: ${sessionIdInput.value}. Waiting for new viewer...`, 'waiting');
+                                }
+                            });
+                            
+                            call.on('error', function(err) {
+                                console.error('Call error:', err);
+                                updateStatus(`Call error: ${err.message}`, 'error');
+                            });
+                            
+                            updateStatus('Connected to viewer!', 'connected');
+                        } catch (error) {
+                            console.error('Error answering call:', error);
+                            updateStatus(`Error answering call: ${error.message}`, 'error');
+                        }
                     });
                 } else {
                     updateStatus('PeerJS server error. Please try again later.', 'error');
@@ -566,13 +602,13 @@ function viewScreen() {
                 console.log('Connection timeout - trying fallback PeerJS server...');
                 
                 // Try a different PeerJS server as fallback
-                if (peer.host === 'peerjs-server.herokuapp.com') {
-                    console.log('Switching to 0.peerjs.com...');
+                if (peer.host === '0.peerjs.com') {
+                    console.log('Switching to peerjs-server.herokuapp.com...');
                     peer.destroy();
                     
                     // Create new peer with different server
                     peer = new Peer(viewerId, {
-                        host: '0.peerjs.com',
+                        host: 'peerjs-server.herokuapp.com',
                         port: 443,
                         path: '/',
                         secure: true,
@@ -632,12 +668,12 @@ function viewScreen() {
                     
                     // Try the fallback server immediately
                     console.log('Trying fallback server immediately...');
-                    if (peer && peer.host === 'peerjs-server.herokuapp.com') {
+                    if (peer && peer.host === '0.peerjs.com') {
                         peer.destroy();
                         
                         // Create new peer with fallback server
                         peer = new Peer(viewerId, {
-                            host: '0.peerjs.com',
+                            host: 'peerjs-server.herokuapp.com',
                             port: 443,
                             path: '/',
                             secure: true,
