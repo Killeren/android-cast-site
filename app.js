@@ -240,9 +240,11 @@ async function handleOffer(message) {
 // Handle incoming answer
 async function handleAnswer(message) {
     console.log('Handling answer from:', message.from);
+    console.log('Answer SDP:', message.answer.sdp.substring(0, 200) + '...');
     
     try {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+        console.log('Set remote answer successfully');
     } catch (error) {
         console.error('Error handling answer:', error);
         updateStatus(`Error handling answer: ${error.message}`, 'error');
@@ -274,6 +276,7 @@ function handlePeerList(message) {
         const sharer = message.peers.find(peer => peer.isSharer);
         if (sharer) {
             console.log('Found sharer:', sharer.id);
+            console.log('Current role - isSharing:', isSharing, 'isViewing:', isViewing);
             callPeer(sharer.id);
         } else {
             updateStatus('No sharer found in session', 'error');
@@ -291,16 +294,18 @@ async function callPeer(targetPeerId) {
         // Create peer connection for sharer
         peerConnection = new RTCPeerConnection(iceServers);
         
-        // Add local stream
-        if (localStream) {
+        // Add local stream only if we're the sharer
+        if (localStream && isSharing) {
             console.log('Local stream tracks:', localStream.getTracks());
             localStream.getTracks().forEach(track => {
                 console.log('Adding track to peer connection:', track.kind, track.id);
                 peerConnection.addTrack(track, localStream);
             });
             console.log('Added local stream tracks to peer connection');
+        } else if (!isSharing) {
+            console.log('Viewer mode - no local stream needed');
         } else {
-            console.error('No local stream available');
+            console.error('No local stream available for sharer');
             return;
         }
         
@@ -344,6 +349,7 @@ async function callPeer(targetPeerId) {
         
         // Create offer
         const offer = await peerConnection.createOffer();
+        console.log('Created offer SDP:', offer.sdp.substring(0, 200) + '...');
         await peerConnection.setLocalDescription(offer);
         console.log('Created and set local offer');
         
