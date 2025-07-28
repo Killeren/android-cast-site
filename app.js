@@ -136,37 +136,45 @@ async function startScreenShare() {
             startShareBtn.classList.remove('btn--primary');
             startShareBtn.classList.add('btn--secondary');
             console.log('Peer connection opened with ID:', id);
+            console.log('Sharer is ready to receive calls');
         });
         
         // Handle incoming calls from viewers
         peer.on('call', function(call) {
             updateStatus('Viewer connected! Answering call...', 'waiting');
             console.log('Incoming call from viewer:', call);
+            console.log('Call metadata:', call.metadata);
             
-            // Answer the call with our screen stream
-            call.answer(localStream);
-            currentCall = call;
-            
-            // Handle call events
-            call.on('stream', function(remoteStream) {
-                // Viewers don't typically send video back, but handle it just in case
-                console.log('Received stream from viewer');
-            });
-            
-            call.on('close', function() {
-                updateStatus('Viewer disconnected', 'waiting');
-                console.log('Call closed by viewer');
-                if (isSharing) {
-                    updateStatus(`Still sharing screen with ID: ${sessionIdInput.value}. Waiting for new viewer...`, 'waiting');
-                }
-            });
-            
-            call.on('error', function(err) {
-                console.error('Call error:', err);
-                updateStatus(`Call error: ${err.message}`, 'error');
-            });
-            
-            updateStatus('Connected to viewer!', 'connected');
+            try {
+                // Answer the call with our screen stream
+                call.answer(localStream);
+                currentCall = call;
+                console.log('Call answered successfully');
+                
+                // Handle call events
+                call.on('stream', function(remoteStream) {
+                    // Viewers don't typically send video back, but handle it just in case
+                    console.log('Received stream from viewer');
+                });
+                
+                call.on('close', function() {
+                    updateStatus('Viewer disconnected', 'waiting');
+                    console.log('Call closed by viewer');
+                    if (isSharing) {
+                        updateStatus(`Still sharing screen with ID: ${sessionIdInput.value}. Waiting for new viewer...`, 'waiting');
+                    }
+                });
+                
+                call.on('error', function(err) {
+                    console.error('Call error:', err);
+                    updateStatus(`Call error: ${err.message}`, 'error');
+                });
+                
+                updateStatus('Connected to viewer!', 'connected');
+            } catch (error) {
+                console.error('Error answering call:', error);
+                updateStatus(`Error answering call: ${error.message}`, 'error');
+            }
         });
         
         // Handle peer errors
@@ -294,6 +302,16 @@ function viewScreen() {
             updateStatus(`Calling screen sharer (${sessionId})...`, 'waiting');
             console.log('Viewer peer opened with ID:', id);
             
+            // Add a small delay to ensure the sharer is ready
+            setTimeout(() => {
+                attemptCall();
+            }, 1000); // Wait 1 second before trying to call
+        });
+        
+        // Function to attempt the call with retry logic
+        function attemptCall(retryCount = 0) {
+            console.log(`Attempting call to sharer (attempt ${retryCount + 1})`);
+            
             // Call the screen sharer
             currentCall = peer.call(sessionId, null); // No stream from viewer
             
@@ -322,15 +340,33 @@ function viewScreen() {
                 // Handle call errors
                 currentCall.on('error', function(err) {
                     console.error('Call error:', err);
-                    updateStatus(`Call failed: ${err.message}`, 'error');
-                    stopViewing();
+                    
+                    // Retry if it's a peer-unavailable error and we haven't retried too many times
+                    if (err.type === 'peer-unavailable' && retryCount < 3) {
+                        console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
+                        setTimeout(() => {
+                            attemptCall(retryCount + 1);
+                        }, 2000);
+                    } else {
+                        updateStatus(`Call failed: ${err.message}`, 'error');
+                        stopViewing();
+                    }
                 });
             } else {
                 console.error('Failed to create call');
-                updateStatus('Failed to create call', 'error');
-                stopViewing();
+                
+                // Retry if we haven't retried too many times
+                if (retryCount < 3) {
+                    console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
+                    setTimeout(() => {
+                        attemptCall(retryCount + 1);
+                    }, 2000);
+                } else {
+                    updateStatus('Failed to create call. The sharer might not be ready.', 'error');
+                    stopViewing();
+                }
             }
-        });
+        }
         
         // Handle peer errors
         peer.on('error', function(err) {
