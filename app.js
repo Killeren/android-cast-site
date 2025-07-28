@@ -288,13 +288,25 @@ async function handleAnswer(message) {
             // Check if we're in fallback mode and the connection is in the right state
             if (isFallbackMode) {
                 console.log('Processing answer in fallback mode');
-                // In fallback mode, we expect the connection to be in 'have-local-offer' state
-                if (peerConnection.connectionState === 'have-local-offer') {
+                console.log('Current connection state:', peerConnection.connectionState);
+                console.log('Current ICE connection state:', peerConnection.iceConnectionState);
+                
+                // In fallback mode, we can accept answers in various states
+                if (peerConnection.connectionState === 'have-local-offer' || 
+                    peerConnection.connectionState === 'new' ||
+                    peerConnection.connectionState === 'have-local-pranswer') {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
                     console.log('Set remote answer successfully in fallback mode');
                 } else {
-                    console.warn('Peer connection in wrong state for fallback answer:', peerConnection.connectionState);
-                    updateStatus('Connection state error. Please try again.', 'error');
+                    console.warn('Peer connection in unexpected state for fallback answer:', peerConnection.connectionState);
+                    // Try to set the answer anyway
+                    try {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+                        console.log('Set remote answer successfully despite unexpected state');
+                    } catch (error) {
+                        console.error('Failed to set remote answer in fallback mode:', error);
+                        updateStatus('Connection state error. Please try again.', 'error');
+                    }
                 }
             } else {
                 // Normal mode
@@ -462,6 +474,8 @@ async function callPeer(targetPeerId) {
                     
                     // Create a new peer connection with fallback servers
                     peerConnection = new RTCPeerConnection(fallbackIceServers);
+                    console.log('Created fallback peer connection');
+                    console.log('Initial fallback connection state:', peerConnection.connectionState);
                     
                     // Set up the same event handlers
                     peerConnection.onicecandidate = function(event) {
@@ -472,11 +486,13 @@ async function callPeer(targetPeerId) {
                                 target: targetPeerId,
                                 candidate: event.candidate
                             }));
+                        } else {
+                            console.log('Fallback ICE candidate gathering complete');
                         }
                     };
                     
                     peerConnection.onconnectionstatechange = function() {
-                        console.log('Fallback connection state:', peerConnection.connectionState);
+                        console.log('Fallback connection state changed:', peerConnection.connectionState);
                         if (peerConnection.connectionState === 'connected') {
                             updateStatus('WebRTC connection established!', 'connected');
                         } else if (peerConnection.connectionState === 'failed') {
@@ -485,7 +501,7 @@ async function callPeer(targetPeerId) {
                     };
                     
                     peerConnection.oniceconnectionstatechange = function() {
-                        console.log('Fallback ICE connection state:', peerConnection.iceConnectionState);
+                        console.log('Fallback ICE connection state changed:', peerConnection.iceConnectionState);
                     };
                     
                     // Set up ontrack for viewer
@@ -520,12 +536,16 @@ async function callPeer(targetPeerId) {
                         return peerConnection.setLocalDescription(offer);
                     }).then(() => {
                         console.log('Set local fallback offer');
-                        signalingSocket.send(JSON.stringify({
-                            type: 'offer',
-                            target: targetPeerId,
-                            offer: peerConnection.localDescription
-                        }));
-                        console.log('Sent fallback offer');
+                        console.log('Fallback connection state after setLocalDescription:', peerConnection.connectionState);
+                        // Wait a moment for the state to update
+                        setTimeout(() => {
+                            signalingSocket.send(JSON.stringify({
+                                type: 'offer',
+                                target: targetPeerId,
+                                offer: peerConnection.localDescription
+                            }));
+                            console.log('Sent fallback offer');
+                        }, 100);
                     }).catch(error => {
                         console.error('Fallback offer creation failed:', error);
                     });
