@@ -439,6 +439,23 @@ function viewScreen() {
                         console.log('2. The session ID is incorrect');
                         console.log('3. The sharer is not connected to the PeerJS server');
                         console.log('4. The PeerJS server is not working properly');
+                        
+                        // Try to check if the peer exists (if the server supports it)
+                        if (peer.listAllPeers) {
+                            console.log('Checking if sharer peer exists...');
+                            peer.listAllPeers((peers) => {
+                                console.log('Available peers:', peers);
+                                if (peers && peers.length > 0) {
+                                    console.log('Available peer IDs:', peers);
+                                    const sharerExists = peers.includes(sessionId);
+                                    console.log(`Sharer ${sessionId} exists:`, sharerExists);
+                                } else {
+                                    console.log('No peers available or server does not support listing');
+                                }
+                            });
+                        } else {
+                            console.log('Server does not support listing peers');
+                        }
                     }
                     
                     // Retry if we haven't retried too many times
@@ -555,6 +572,24 @@ function viewScreen() {
                 }
             }
         }, 10000);
+        
+        // Also try a simple test to see if we can connect to a known peer
+        setTimeout(() => {
+            if (!isViewing && peer && peer.id) {
+                console.log('Testing PeerJS connectivity with a simple ping...');
+                
+                // Try to call a non-existent peer to test if the server is working
+                const testCall = peer.call('test-peer-' + Date.now(), null);
+                console.log('Test call result:', testCall);
+                
+                if (testCall) {
+                    console.log('PeerJS server is working, but target peer might not exist');
+                    testCall.close();
+                } else {
+                    console.log('PeerJS server is not working properly');
+                }
+            }
+        }, 5000);
         
     } catch (error) {
         console.error('Error viewing screen:', error);
