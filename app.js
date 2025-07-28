@@ -85,15 +85,22 @@ async function startScreenShare() {
         
         // Initialize PeerJS connection
         peer = new Peer(sessionId, {
-            host: '35.200.221.49',
-            port: 9000,
-            path: '/',
-            secure: true,
+            host: window.location.hostname,
+            port: window.location.protocol === 'https:' ? 443 : 80,
+            path: '/peerjs',
+            secure: window.location.protocol === 'https:',
             config: {
               iceServers: [
-                // { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
                 {
                   urls: 'turn:35.200.221.49:3478?transport=tcp',
+                  username: 'peeruser',
+                  credential: 'peerpass123'
+                },
+                {
+                  urls: 'turn:35.200.221.49:3478?transport=udp',
                   username: 'peeruser',
                   credential: 'peerpass123'
                 }
@@ -108,11 +115,13 @@ async function startScreenShare() {
             startShareBtn.textContent = 'Stop Sharing';
             startShareBtn.classList.remove('btn--primary');
             startShareBtn.classList.add('btn--secondary');
+            console.log('Peer connection opened with ID:', id);
         });
         
         // Handle incoming calls from viewers
         peer.on('call', function(call) {
             updateStatus('Viewer connected! Answering call...', 'waiting');
+            console.log('Incoming call from viewer:', call);
             
             // Answer the call with our screen stream
             call.answer(localStream);
@@ -126,9 +135,15 @@ async function startScreenShare() {
             
             call.on('close', function() {
                 updateStatus('Viewer disconnected', 'waiting');
+                console.log('Call closed by viewer');
                 if (isSharing) {
                     updateStatus(`Still sharing screen with ID: ${sessionIdInput.value}. Waiting for new viewer...`, 'waiting');
                 }
+            });
+            
+            call.on('error', function(err) {
+                console.error('Call error:', err);
+                updateStatus(`Call error: ${err.message}`, 'error');
             });
             
             updateStatus('Connected to viewer!', 'connected');
@@ -139,6 +154,17 @@ async function startScreenShare() {
             console.error('PeerJS error:', err);
             updateStatus(`Connection error: ${err.message}`, 'error');
             stopScreenShare();
+        });
+        
+        // Handle peer disconnection
+        peer.on('disconnected', function() {
+            console.log('Peer disconnected');
+            updateStatus('Connection lost. Reconnecting...', 'error');
+        });
+        
+        peer.on('reconnected', function() {
+            console.log('Peer reconnected');
+            updateStatus('Connection restored', 'connected');
         });
         
         // Handle when screen share is stopped by user
@@ -209,15 +235,22 @@ function viewScreen() {
         
         // Initialize PeerJS connection
         peer = new Peer(viewerId, {
-            host: '35.200.221.49',
-            port: 9000,
-            path: '/',
-            secure: true,
+            host: window.location.hostname,
+            port: window.location.protocol === 'https:' ? 443 : 80,
+            path: '/peerjs',
+            secure: window.location.protocol === 'https:',
             config: {
               iceServers: [
-                // { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
                 {
                   urls: 'turn:35.200.221.49:3478?transport=tcp',
+                  username: 'peeruser',
+                  credential: 'peerpass123'
+                },
+                {
+                  urls: 'turn:35.200.221.49:3478?transport=udp',
                   username: 'peeruser',
                   credential: 'peerpass123'
                 }
@@ -228,14 +261,18 @@ function viewScreen() {
         // Handle peer connection events
         peer.on('open', function(id) {
             updateStatus(`Calling screen sharer (${sessionId})...`, 'waiting');
+            console.log('Viewer peer opened with ID:', id);
             
             // Call the screen sharer
             currentCall = peer.call(sessionId, null); // No stream from viewer
             
             if (currentCall) {
+                console.log('Call initiated to sharer:', sessionId);
+                
                 // Handle incoming stream from screen sharer
                 currentCall.on('stream', function(remoteStream) {
                     updateStatus('Connected! Receiving screen share...', 'connected');
+                    console.log('Received stream from sharer');
                     remoteVideo.srcObject = remoteStream;
                     isViewing = true;
                     
@@ -247,6 +284,7 @@ function viewScreen() {
                 // Handle call end
                 currentCall.on('close', function() {
                     updateStatus('Screen share ended');
+                    console.log('Call closed by sharer');
                     stopViewing();
                 });
                 
@@ -256,6 +294,10 @@ function viewScreen() {
                     updateStatus(`Call failed: ${err.message}`, 'error');
                     stopViewing();
                 });
+            } else {
+                console.error('Failed to create call');
+                updateStatus('Failed to create call', 'error');
+                stopViewing();
             }
         });
         
@@ -270,6 +312,17 @@ function viewScreen() {
             }
             
             stopViewing();
+        });
+        
+        // Handle peer disconnection
+        peer.on('disconnected', function() {
+            console.log('Viewer peer disconnected');
+            updateStatus('Connection lost. Reconnecting...', 'error');
+        });
+        
+        peer.on('reconnected', function() {
+            console.log('Viewer peer reconnected');
+            updateStatus('Connection restored', 'connected');
         });
         
         // Timeout if connection takes too long
