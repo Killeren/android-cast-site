@@ -20,6 +20,9 @@ const remoteVideo = document.getElementById('remoteVideo');
  * Initialize the application when DOM is loaded
  */
 document.addEventListener('DOMContentLoaded', function() {
+    // Check browser compatibility
+    checkBrowserCompatibility();
+    
     // Add event listeners to buttons
     generateIdBtn.addEventListener('click', generateSessionId);
     startShareBtn.addEventListener('click', startScreenShare);
@@ -73,10 +76,27 @@ async function startScreenShare() {
         updateStatus('Requesting screen share permission...', 'waiting');
         disableButtons(true);
         
+        // Check if screen sharing is supported
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            throw new Error('Screen sharing is not supported in this browser. Please use Chrome, Firefox, or Safari.');
+        }
+        
+        // Check if we're on HTTPS (required for screen sharing)
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+            throw new Error('Screen sharing requires HTTPS. Please access this site via HTTPS.');
+        }
+        
         // Request screen capture
         localStream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,
-            audio: true
+            video: {
+                cursor: "always",
+                displaySurface: "monitor"
+            },
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                sampleRate: 44100
+            }
         });
         
         // Show local stream
@@ -175,7 +195,18 @@ async function startScreenShare() {
         
     } catch (error) {
         console.error('Error starting screen share:', error);
-        updateStatus('Failed to start screen sharing. Please try again.', 'error');
+        
+        // Provide specific error messages
+        if (error.name === 'NotAllowedError') {
+            updateStatus('Screen sharing permission denied. Please allow screen sharing and try again.', 'error');
+        } else if (error.name === 'NotSupportedError') {
+            updateStatus('Screen sharing is not supported in this browser. Please use Chrome, Firefox, or Safari.', 'error');
+        } else if (error.message.includes('HTTPS')) {
+            updateStatus('Screen sharing requires HTTPS. Please access this site via HTTPS.', 'error');
+        } else {
+            updateStatus(`Failed to start screen sharing: ${error.message}`, 'error');
+        }
+        
         stopScreenShare();
     } finally {
         disableButtons(false);
@@ -406,3 +437,29 @@ window.addEventListener('beforeunload', function() {
         stopViewing();
     }
 });
+
+/**
+ * Check browser compatibility for screen sharing
+ */
+function checkBrowserCompatibility() {
+    const isHTTPS = location.protocol === 'https:' || location.hostname === 'localhost';
+    const hasScreenShare = navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia;
+    const isModernBrowser = navigator.userAgent.includes('Chrome') || 
+                           navigator.userAgent.includes('Firefox') || 
+                           navigator.userAgent.includes('Safari');
+    
+    if (!isHTTPS) {
+        updateStatus('⚠️ HTTPS required for screen sharing. Please access via HTTPS.', 'warning');
+    } else if (!hasScreenShare) {
+        updateStatus('⚠️ Screen sharing not supported in this browser. Use Chrome, Firefox, or Safari.', 'warning');
+    } else if (!isModernBrowser) {
+        updateStatus('⚠️ For best experience, use Chrome, Firefox, or Safari.', 'warning');
+    }
+    
+    console.log('Browser compatibility:', {
+        isHTTPS,
+        hasScreenShare,
+        isModernBrowser,
+        userAgent: navigator.userAgent
+    });
+}

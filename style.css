@@ -816,6 +816,11 @@ body {
     color: var(--color-warning);
 }
 
+.status-message.warning {
+    background-color: var(--color-bg-6);
+    color: var(--color-warning);
+}
+
 /* Videos container */
 .videos-container {
     display: flex;
