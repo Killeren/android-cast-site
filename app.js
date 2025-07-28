@@ -304,56 +304,98 @@ function viewScreen() {
             
             // Add a small delay to ensure the sharer is ready
             setTimeout(() => {
-                attemptCall();
+                checkSharerAvailability();
             }, 1000); // Wait 1 second before trying to call
         });
+        
+        // Function to check if sharer is available
+        function checkSharerAvailability() {
+            console.log('Checking if sharer is available...');
+            
+            // Try to list peers to see if our target is available
+            if (peer && peer.listAllPeers) {
+                peer.listAllPeers((peers) => {
+                    console.log('Available peers:', peers);
+                    if (peers.includes(sessionId)) {
+                        console.log('Sharer found, attempting call...');
+                        attemptCall();
+                    } else {
+                        console.log('Sharer not found in peer list');
+                        updateStatus('Screen sharer not found. Please check the session ID.', 'error');
+                        stopViewing();
+                    }
+                });
+            } else {
+                // Fallback: try to call directly
+                console.log('Peer list not available, attempting call directly...');
+                attemptCall();
+            }
+        }
         
         // Function to attempt the call with retry logic
         function attemptCall(retryCount = 0) {
             console.log(`Attempting call to sharer (attempt ${retryCount + 1})`);
+            console.log('Session ID:', sessionId);
+            console.log('Peer object:', peer);
             
-            // Call the screen sharer
-            currentCall = peer.call(sessionId, null); // No stream from viewer
-            
-            if (currentCall) {
-                console.log('Call initiated to sharer:', sessionId);
+            try {
+                // Call the screen sharer
+                currentCall = peer.call(sessionId, null); // No stream from viewer
                 
-                // Handle incoming stream from screen sharer
-                currentCall.on('stream', function(remoteStream) {
-                    updateStatus('Connected! Receiving screen share...', 'connected');
-                    console.log('Received stream from sharer');
-                    remoteVideo.srcObject = remoteStream;
-                    isViewing = true;
+                if (currentCall) {
+                    console.log('Call initiated to sharer:', sessionId);
+                    console.log('Call object:', currentCall);
                     
-                    viewScreenBtn.textContent = 'Stop Viewing';
-                    viewScreenBtn.classList.remove('btn--outline');
-                    viewScreenBtn.classList.add('btn--secondary');
-                });
-                
-                // Handle call end
-                currentCall.on('close', function() {
-                    updateStatus('Screen share ended');
-                    console.log('Call closed by sharer');
-                    stopViewing();
-                });
-                
-                // Handle call errors
-                currentCall.on('error', function(err) {
-                    console.error('Call error:', err);
+                    // Handle incoming stream from screen sharer
+                    currentCall.on('stream', function(remoteStream) {
+                        updateStatus('Connected! Receiving screen share...', 'connected');
+                        console.log('Received stream from sharer');
+                        remoteVideo.srcObject = remoteStream;
+                        isViewing = true;
+                        
+                        viewScreenBtn.textContent = 'Stop Viewing';
+                        viewScreenBtn.classList.remove('btn--outline');
+                        viewScreenBtn.classList.add('btn--secondary');
+                    });
                     
-                    // Retry if it's a peer-unavailable error and we haven't retried too many times
-                    if (err.type === 'peer-unavailable' && retryCount < 3) {
+                    // Handle call end
+                    currentCall.on('close', function() {
+                        updateStatus('Screen share ended');
+                        console.log('Call closed by sharer');
+                        stopViewing();
+                    });
+                    
+                    // Handle call errors
+                    currentCall.on('error', function(err) {
+                        console.error('Call error:', err);
+                        
+                        // Retry if it's a peer-unavailable error and we haven't retried too many times
+                        if (err.type === 'peer-unavailable' && retryCount < 3) {
+                            console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
+                            setTimeout(() => {
+                                attemptCall(retryCount + 1);
+                            }, 2000);
+                        } else {
+                            updateStatus(`Call failed: ${err.message}`, 'error');
+                            stopViewing();
+                        }
+                    });
+                } else {
+                    console.error('Failed to create call - peer.call returned null');
+                    
+                    // Retry if we haven't retried too many times
+                    if (retryCount < 3) {
                         console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
                         setTimeout(() => {
                             attemptCall(retryCount + 1);
                         }, 2000);
                     } else {
-                        updateStatus(`Call failed: ${err.message}`, 'error');
+                        updateStatus('Failed to create call. The sharer might not be ready.', 'error');
                         stopViewing();
                     }
-                });
-            } else {
-                console.error('Failed to create call');
+                }
+            } catch (error) {
+                console.error('Error creating call:', error);
                 
                 // Retry if we haven't retried too many times
                 if (retryCount < 3) {
@@ -362,7 +404,7 @@ function viewScreen() {
                         attemptCall(retryCount + 1);
                     }, 2000);
                 } else {
-                    updateStatus('Failed to create call. The sharer might not be ready.', 'error');
+                    updateStatus(`Call creation error: ${error.message}`, 'error');
                     stopViewing();
                 }
             }
