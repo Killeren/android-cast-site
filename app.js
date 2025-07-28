@@ -333,6 +333,16 @@ function viewScreen() {
                     return;
                 }
                 
+                // Validate session ID format
+                if (!sessionId || sessionId.length !== 6) {
+                    console.error('Invalid session ID format');
+                    updateStatus('Invalid session ID. Please check the session ID.', 'error');
+                    stopViewing();
+                    return;
+                }
+                
+                console.log('Attempting to call sharer with session ID:', sessionId);
+                
                 // Call the screen sharer
                 currentCall = peer.call(sessionId, null); // No stream from viewer
                 
@@ -382,6 +392,14 @@ function viewScreen() {
                         disconnected: peer.disconnected
                     });
                     
+                    // Check if this might be a session ID issue
+                    if (retryCount === 0) {
+                        console.log('First attempt failed. This might be because:');
+                        console.log('1. The sharer is not actually sharing with this session ID');
+                        console.log('2. The session ID is incorrect');
+                        console.log('3. The sharer is not connected to the PeerJS server');
+                    }
+                    
                     // Retry if we haven't retried too many times
                     if (retryCount < 3) {
                         console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
@@ -389,7 +407,7 @@ function viewScreen() {
                             attemptCall(retryCount + 1);
                         }, 2000);
                     } else {
-                        updateStatus('Failed to create call. The sharer might not be ready.', 'error');
+                        updateStatus('Failed to create call. Please check that the sharer is active and the session ID is correct.', 'error');
                         stopViewing();
                     }
                 }

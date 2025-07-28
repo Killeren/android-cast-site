@@ -27,6 +27,17 @@ app.get('/test', (req, res) => {
     res.json({ message: 'Server is running!', port: PORT });
 });
 
+// Add a simple status endpoint
+app.get('/status', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        server: 'webrtc-app',
+        port: PORT,
+        uptime: process.uptime()
+    });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📱 Access your application at http://localhost:${PORT}`);
