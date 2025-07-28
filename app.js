@@ -20,18 +20,25 @@ const statusDiv = document.getElementById('status');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 
-// ICE servers configuration (using only STUN servers for now)
+// ICE servers configuration with multiple fallback options
 const iceServers = {
     iceServers: [
+        // Primary STUN servers
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' }
+        { urls: 'stun:stun4.l.google.com:19302' },
+        // Additional STUN servers for better connectivity
+        { urls: 'stun:stun.stunprotocol.org:3478' },
+        { urls: 'stun:stun.voiparound.com:3478' },
+        { urls: 'stun:stun.voipbuster.com:3478' },
+        { urls: 'stun:stun.voipstunt.com:3478' },
+        { urls: 'stun:stun.voxgratia.org:3478' }
     ]
 };
 
-console.log('ICE servers configuration (STUN only):', iceServers);
+console.log('ICE servers configuration (enhanced STUN):', iceServers);
 
 // Test ICE server connectivity
 async function testIceServers() {
@@ -463,92 +470,122 @@ async function callPeer(targetPeerId) {
                     // Close the original connection
                     peerConnection.close();
                     
-                    // Try with a simpler ICE configuration
-                    const fallbackIceServers = {
-                        iceServers: [
-                            { urls: 'stun:stun.l.google.com:19302' }
-                        ]
-                    };
-                    
-                    console.log('Trying fallback ICE servers:', fallbackIceServers);
-                    
-                    // Create a new peer connection with fallback servers
-                    peerConnection = new RTCPeerConnection(fallbackIceServers);
-                    console.log('Created fallback peer connection');
-                    console.log('Initial fallback connection state:', peerConnection.connectionState);
-                    
-                    // Set up the same event handlers
-                    peerConnection.onicecandidate = function(event) {
-                        if (event.candidate) {
-                            console.log('Fallback ICE candidate:', event.candidate.type, event.candidate.protocol);
-                            signalingSocket.send(JSON.stringify({
-                                type: 'ice-candidate',
-                                target: targetPeerId,
-                                candidate: event.candidate
-                            }));
-                        } else {
-                            console.log('Fallback ICE candidate gathering complete');
+                    // Try multiple fallback configurations
+                    const fallbackConfigs = [
+                        // Fallback 1: Single Google STUN
+                        {
+                            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                        },
+                        // Fallback 2: Alternative STUN servers
+                        {
+                            iceServers: [
+                                { urls: 'stun:stun.stunprotocol.org:3478' },
+                                { urls: 'stun:stun.voiparound.com:3478' }
+                            ]
+                        },
+                        // Fallback 3: Minimal configuration
+                        {
+                            iceServers: []
                         }
-                    };
+                    ];
                     
-                    peerConnection.onconnectionstatechange = function() {
-                        console.log('Fallback connection state changed:', peerConnection.connectionState);
-                        if (peerConnection.connectionState === 'connected') {
-                            updateStatus('WebRTC connection established!', 'connected');
-                        } else if (peerConnection.connectionState === 'failed') {
-                            updateStatus('WebRTC connection failed', 'error');
+                    let fallbackIndex = 0;
+                    
+                    function tryNextFallback() {
+                        if (fallbackIndex >= fallbackConfigs.length) {
+                            console.error('All fallback configurations failed');
+                            updateStatus('Unable to establish connection. Please check your network.', 'error');
+                            return;
                         }
-                    };
-                    
-                    peerConnection.oniceconnectionstatechange = function() {
-                        console.log('Fallback ICE connection state changed:', peerConnection.iceConnectionState);
-                    };
-                    
-                    // Set up ontrack for viewer
-                    if (!isSharing) {
-                        peerConnection.ontrack = function(event) {
-                            console.log('Received remote stream from fallback connection');
-                            if (event.streams && event.streams[0]) {
-                                remoteVideo.srcObject = event.streams[0];
-                                remoteStream = event.streams[0];
-                                isViewing = true;
-                                updateStatus('Connected! Receiving screen share...', 'connected');
-                                
-                                viewScreenBtn.textContent = 'Stop Viewing';
-                                viewScreenBtn.classList.remove('btn--outline');
-                                viewScreenBtn.classList.add('btn--secondary');
+                        
+                        const fallbackConfig = fallbackConfigs[fallbackIndex];
+                        console.log(`Trying fallback configuration ${fallbackIndex + 1}:`, fallbackConfig);
+                        
+                        // Create a new peer connection with fallback servers
+                        peerConnection = new RTCPeerConnection(fallbackConfig);
+                        console.log('Created fallback peer connection');
+                        console.log('Initial fallback connection state:', peerConnection.connectionState);
+                        
+                        // Set up the same event handlers
+                        peerConnection.onicecandidate = function(event) {
+                            if (event.candidate) {
+                                console.log('Fallback ICE candidate:', event.candidate.type, event.candidate.protocol);
+                                signalingSocket.send(JSON.stringify({
+                                    type: 'ice-candidate',
+                                    target: targetPeerId,
+                                    candidate: event.candidate
+                                }));
+                            } else {
+                                console.log('Fallback ICE candidate gathering complete');
                             }
                         };
-                    }
-                    
-                    // Add local stream only if we're the sharer
-                    if (localStream && isSharing) {
-                        console.log('Adding local stream to fallback connection');
-                        localStream.getTracks().forEach(track => {
-                            console.log('Adding track to fallback connection:', track.kind, track.id);
-                            peerConnection.addTrack(track, localStream);
+                        
+                        peerConnection.onconnectionstatechange = function() {
+                            console.log('Fallback connection state changed:', peerConnection.connectionState);
+                            if (peerConnection.connectionState === 'connected') {
+                                updateStatus('WebRTC connection established!', 'connected');
+                            } else if (peerConnection.connectionState === 'failed') {
+                                console.log('Fallback configuration failed, trying next...');
+                                fallbackIndex++;
+                                tryNextFallback();
+                            }
+                        };
+                        
+                        peerConnection.oniceconnectionstatechange = function() {
+                            console.log('Fallback ICE connection state changed:', peerConnection.iceConnectionState);
+                        };
+                        
+                        // Set up ontrack for viewer
+                        if (!isSharing) {
+                            peerConnection.ontrack = function(event) {
+                                console.log('Received remote stream from fallback connection');
+                                if (event.streams && event.streams[0]) {
+                                    remoteVideo.srcObject = event.streams[0];
+                                    remoteStream = event.streams[0];
+                                    isViewing = true;
+                                    updateStatus('Connected! Receiving screen share...', 'connected');
+                                    
+                                    viewScreenBtn.textContent = 'Stop Viewing';
+                                    viewScreenBtn.classList.remove('btn--outline');
+                                    viewScreenBtn.classList.add('btn--secondary');
+                                }
+                            };
+                        }
+                        
+                        // Add local stream only if we're the sharer
+                        if (localStream && isSharing) {
+                            console.log('Adding local stream to fallback connection');
+                            localStream.getTracks().forEach(track => {
+                                console.log('Adding track to fallback connection:', track.kind, track.id);
+                                peerConnection.addTrack(track, localStream);
+                            });
+                        }
+                        
+                        // Try to create a new offer with fallback servers
+                        peerConnection.createOffer().then(offer => {
+                            console.log('Created fallback offer:', offer.sdp.substring(0, 200) + '...');
+                            return peerConnection.setLocalDescription(offer);
+                        }).then(() => {
+                            console.log('Set local fallback offer');
+                            console.log('Fallback connection state after setLocalDescription:', peerConnection.connectionState);
+                            // Wait a moment for the state to update
+                            setTimeout(() => {
+                                signalingSocket.send(JSON.stringify({
+                                    type: 'offer',
+                                    target: targetPeerId,
+                                    offer: peerConnection.localDescription
+                                }));
+                                console.log('Sent fallback offer');
+                            }, 100);
+                        }).catch(error => {
+                            console.error('Fallback offer creation failed:', error);
+                            fallbackIndex++;
+                            tryNextFallback();
                         });
                     }
                     
-                    // Try to create a new offer with fallback servers
-                    peerConnection.createOffer().then(offer => {
-                        console.log('Created fallback offer:', offer.sdp.substring(0, 200) + '...');
-                        return peerConnection.setLocalDescription(offer);
-                    }).then(() => {
-                        console.log('Set local fallback offer');
-                        console.log('Fallback connection state after setLocalDescription:', peerConnection.connectionState);
-                        // Wait a moment for the state to update
-                        setTimeout(() => {
-                            signalingSocket.send(JSON.stringify({
-                                type: 'offer',
-                                target: targetPeerId,
-                                offer: peerConnection.localDescription
-                            }));
-                            console.log('Sent fallback offer');
-                        }, 100);
-                    }).catch(error => {
-                        console.error('Fallback offer creation failed:', error);
-                    });
+                    // Start with the first fallback configuration
+                    tryNextFallback();
                     
                 } else {
                     updateStatus('Connection timeout. Please try again.', 'error');
