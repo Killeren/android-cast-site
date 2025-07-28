@@ -105,7 +105,7 @@ async function startScreenShare() {
         
         // Initialize PeerJS connection
         peer = new Peer(sessionId, {
-            host: 'peerjs-server.herokuapp.com',
+            host: '0.peerjs.com',
             port: 443,
             path: '/',
             secure: true,
@@ -266,7 +266,7 @@ function viewScreen() {
         
         // Initialize PeerJS connection
         peer = new Peer(viewerId, {
-            host: 'peerjs-server.herokuapp.com',
+            host: '0.peerjs.com',
             port: 443,
             path: '/',
             secure: true,
@@ -444,22 +444,33 @@ window.addEventListener('beforeunload', function() {
 function checkBrowserCompatibility() {
     const isHTTPS = location.protocol === 'https:' || location.hostname === 'localhost';
     const hasScreenShare = navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia;
-    const isModernBrowser = navigator.userAgent.includes('Chrome') || 
-                           navigator.userAgent.includes('Firefox') || 
-                           navigator.userAgent.includes('Safari');
+    const userAgent = navigator.userAgent.toLowerCase();
     
-    if (!isHTTPS) {
-        updateStatus('⚠️ HTTPS required for screen sharing. Please access via HTTPS.', 'warning');
-    } else if (!hasScreenShare) {
-        updateStatus('⚠️ Screen sharing not supported in this browser. Use Chrome, Firefox, or Safari.', 'warning');
-    } else if (!isModernBrowser) {
-        updateStatus('⚠️ For best experience, use Chrome, Firefox, or Safari.', 'warning');
-    }
+    // More flexible browser detection
+    const isChrome = userAgent.includes('chrome') && !userAgent.includes('edg');
+    const isFirefox = userAgent.includes('firefox');
+    const isSafari = userAgent.includes('safari') && !userAgent.includes('chrome');
+    const isEdge = userAgent.includes('edg');
+    const isModernBrowser = isChrome || isFirefox || isSafari || isEdge;
     
     console.log('Browser compatibility:', {
         isHTTPS,
         hasScreenShare,
-        isModernBrowser,
-        userAgent: navigator.userAgent
+        userAgent: navigator.userAgent,
+        isChrome,
+        isFirefox,
+        isSafari,
+        isEdge,
+        isModernBrowser
     });
+    
+    if (!isHTTPS) {
+        updateStatus('⚠️ HTTPS required for screen sharing. Please access via HTTPS.', 'warning');
+    } else if (!hasScreenShare) {
+        updateStatus('⚠️ Screen sharing not supported in this browser. Use Chrome, Firefox, Safari, or Edge.', 'warning');
+    } else if (!isModernBrowser) {
+        updateStatus('⚠️ For best experience, use Chrome, Firefox, Safari, or Edge.', 'warning');
+    } else {
+        updateStatus('✅ Browser compatible for screen sharing', 'connected');
+    }
 }
