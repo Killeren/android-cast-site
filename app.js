@@ -85,10 +85,10 @@ async function startScreenShare() {
         
         // Initialize PeerJS connection
         peer = new Peer(sessionId, {
-            host: window.location.hostname,
-            port: window.location.protocol === 'https:' ? 443 : 80,
-            path: '/peerjs',
-            secure: window.location.protocol === 'https:',
+            host: 'peerjs-server.herokuapp.com',
+            port: 443,
+            path: '/',
+            secure: true,
             config: {
               iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -235,10 +235,10 @@ function viewScreen() {
         
         // Initialize PeerJS connection
         peer = new Peer(viewerId, {
-            host: window.location.hostname,
-            port: window.location.protocol === 'https:' ? 443 : 80,
-            path: '/peerjs',
-            secure: window.location.protocol === 'https:',
+            host: 'peerjs-server.herokuapp.com',
+            port: 443,
+            path: '/',
+            secure: true,
             config: {
               iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
