@@ -335,20 +335,29 @@ function viewScreen() {
             console.log(`Attempting call to sharer (attempt ${retryCount + 1})`);
             console.log('Session ID:', sessionId);
             console.log('Peer object:', peer);
+            
+            // Check if peer object is valid
+            if (!peer) {
+                console.error('Peer object is null - connection was lost');
+                updateStatus('Connection lost. Please try again.', 'error');
+                stopViewing();
+                return;
+            }
+            
             console.log('Peer ID:', peer.id);
             console.log('Peer connection state:', peer.connection ? peer.connection.connectionState : 'No connection');
             
             try {
                 // Check if peer is connected
-                if (!peer.id) {
-                    console.error('Peer not connected yet');
+                if (!peer || peer.destroyed || peer.disconnected) {
+                    console.error('Peer not connected or destroyed. Attempting to reconnect...');
                     if (retryCount < 3) {
-                        console.log(`Retrying call in 2 seconds... (attempt ${retryCount + 1})`);
+                        console.log(`Retrying peer connection in 2 seconds... (attempt ${retryCount + 1})`);
                         setTimeout(() => {
                             attemptCall(retryCount + 1);
                         }, 2000);
                     } else {
-                        updateStatus('Peer not connected. Please try again.', 'error');
+                        updateStatus('Failed to connect to screen sharer. Please try again.', 'error');
                         stopViewing();
                     }
                     return;
@@ -440,22 +449,8 @@ function viewScreen() {
                         console.log('3. The sharer is not connected to the PeerJS server');
                         console.log('4. The PeerJS server is not working properly');
                         
-                        // Try to check if the peer exists (if the server supports it)
-                        if (peer.listAllPeers) {
-                            console.log('Checking if sharer peer exists...');
-                            peer.listAllPeers((peers) => {
-                                console.log('Available peers:', peers);
-                                if (peers && peers.length > 0) {
-                                    console.log('Available peer IDs:', peers);
-                                    const sharerExists = peers.includes(sessionId);
-                                    console.log(`Sharer ${sessionId} exists:`, sharerExists);
-                                } else {
-                                    console.log('No peers available or server does not support listing');
-                                }
-                            });
-                        } else {
-                            console.log('Server does not support listing peers');
-                        }
+                        // Note: listAllPeers is not supported by 0.peerjs.com
+                        console.log('Server does not support listing peers - this is normal for 0.peerjs.com');
                     }
                     
                     // Retry if we haven't retried too many times
@@ -499,7 +494,54 @@ function viewScreen() {
             } else if (err.type === 'network') {
                 updateStatus('Network error. Please check your internet connection.', 'error');
             } else if (err.type === 'server-error') {
-                updateStatus('PeerJS server error. Please try again later.', 'error');
+                console.log('PeerJS server error detected - trying fallback server...');
+                
+                // Try fallback server if this is the first server
+                if (peer && peer.host === '0.peerjs.com') {
+                    console.log('Switching to fallback PeerJS server...');
+                    peer.destroy();
+                    
+                    // Create new peer with fallback server
+                    peer = new Peer(viewerId, {
+                        host: 'peerjs-server.herokuapp.com',
+                        port: 443,
+                        path: '/',
+                        secure: true,
+                        config: {
+                          iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            { urls: 'stun:stun2.l.google.com:19302' },
+                            {
+                              urls: 'turn:35.200.221.49:3478?transport=tcp',
+                              username: 'peeruser',
+                              credential: 'peerpass123'
+                            },
+                            {
+                              urls: 'turn:35.200.221.49:3478?transport=udp',
+                              username: 'peeruser',
+                              credential: 'peerpass123'
+                            }
+                          ]
+                        }
+                    });
+                    
+                    // Set up event handlers for fallback peer
+                    peer.on('open', function(id) {
+                        console.log('Fallback PeerJS server connected with ID:', id);
+                        setTimeout(() => {
+                            attemptCall();
+                        }, 2000);
+                    });
+                    
+                    peer.on('error', function(err) {
+                        console.error('Fallback PeerJS error:', err);
+                        updateStatus('All PeerJS servers failed. Please try again later.', 'error');
+                        stopViewing();
+                    });
+                } else {
+                    updateStatus('PeerJS server error. Please try again later.', 'error');
+                }
             } else {
                 updateStatus(`Connection error: ${err.message}`, 'error');
             }
