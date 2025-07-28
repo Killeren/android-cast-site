@@ -19,26 +19,18 @@ const statusDiv = document.getElementById('status');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 
-// ICE servers configuration (using your TURN server)
+// ICE servers configuration (using only STUN servers for now)
 const iceServers = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
-        {
-            urls: 'turn:35.200.221.49:3478?transport=tcp',
-            username: 'peeruser',
-            credential: 'peerpass123'
-        },
-        {
-            urls: 'turn:35.200.221.49:3478?transport=udp',
-            username: 'peeruser',
-            credential: 'peerpass123'
-        }
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' }
     ]
 };
 
-console.log('ICE servers configuration:', iceServers);
+console.log('ICE servers configuration (STUN only):', iceServers);
 
 // Test ICE server connectivity
 async function testIceServers() {
@@ -46,11 +38,17 @@ async function testIceServers() {
         const testConnection = new RTCPeerConnection(iceServers);
         console.log('Created test peer connection with ICE servers');
         
+        let candidateCount = 0;
+        
         testConnection.onicecandidate = function(event) {
             if (event.candidate) {
-                console.log('Test ICE candidate generated:', event.candidate.type, event.candidate.protocol);
+                candidateCount++;
+                console.log(`Test ICE candidate ${candidateCount} generated:`, event.candidate.type, event.candidate.protocol, event.candidate.address);
             } else {
-                console.log('Test ICE gathering complete');
+                console.log('Test ICE gathering complete. Total candidates:', candidateCount);
+                if (candidateCount === 0) {
+                    console.warn('No ICE candidates generated! This indicates a network connectivity issue.');
+                }
             }
         };
         
@@ -63,11 +61,11 @@ async function testIceServers() {
         await testConnection.setLocalDescription(offer);
         console.log('Test offer created to trigger ICE gathering');
         
-        // Clean up after 5 seconds
+        // Clean up after 10 seconds to allow more time for candidates
         setTimeout(() => {
             testConnection.close();
             console.log('Test connection closed');
-        }, 5000);
+        }, 10000);
         
     } catch (error) {
         console.error('Error testing ICE servers:', error);
@@ -414,7 +412,56 @@ async function callPeer(targetPeerId) {
         setTimeout(() => {
             if (peerConnection && peerConnection.iceConnectionState !== 'connected') {
                 console.log('Connection timeout - ICE state:', peerConnection.iceConnectionState);
-                updateStatus('Connection timeout. Please try again.', 'error');
+                
+                // Check if any ICE candidates were generated
+                if (peerConnection.iceConnectionState === 'new') {
+                    console.warn('No ICE candidates generated. Trying fallback approach...');
+                    updateStatus('Network connectivity issue. Trying alternative connection method...', 'error');
+                    
+                    // Try with a simpler ICE configuration
+                    const fallbackIceServers = {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' }
+                        ]
+                    };
+                    
+                    console.log('Trying fallback ICE servers:', fallbackIceServers);
+                    
+                    // Create a new peer connection with fallback servers
+                    const fallbackConnection = new RTCPeerConnection(fallbackIceServers);
+                    
+                    // Set up the same event handlers
+                    fallbackConnection.onicecandidate = function(event) {
+                        if (event.candidate) {
+                            console.log('Fallback ICE candidate:', event.candidate.type, event.candidate.protocol);
+                            signalingSocket.send(JSON.stringify({
+                                type: 'ice-candidate',
+                                target: targetPeerId,
+                                candidate: event.candidate
+                            }));
+                        }
+                    };
+                    
+                    fallbackConnection.onconnectionstatechange = function() {
+                        console.log('Fallback connection state:', fallbackConnection.connectionState);
+                    };
+                    
+                    // Try to create a new offer with fallback servers
+                    fallbackConnection.createOffer().then(offer => {
+                        fallbackConnection.setLocalDescription(offer);
+                        signalingSocket.send(JSON.stringify({
+                            type: 'offer',
+                            target: targetPeerId,
+                            offer: offer
+                        }));
+                        console.log('Sent fallback offer');
+                    }).catch(error => {
+                        console.error('Fallback offer creation failed:', error);
+                    });
+                    
+                } else {
+                    updateStatus('Connection timeout. Please try again.', 'error');
+                }
             }
         }, 10000); // 10 second timeout
         
