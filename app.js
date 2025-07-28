@@ -142,25 +142,51 @@ async function handleOffer(message) {
         
         // Set up event handlers
         peerConnection.ontrack = function(event) {
-            console.log('Received remote stream');
-            remoteVideo.srcObject = event.streams[0];
-            remoteStream = event.streams[0];
-            isViewing = true;
-            updateStatus('Connected! Receiving screen share...', 'connected');
+            console.log('Received remote stream:', event.streams);
+            console.log('Stream tracks:', event.streams[0].getTracks());
             
-            viewScreenBtn.textContent = 'Stop Viewing';
-            viewScreenBtn.classList.remove('btn--outline');
-            viewScreenBtn.classList.add('btn--secondary');
+            if (event.streams && event.streams[0]) {
+                remoteVideo.srcObject = event.streams[0];
+                remoteStream = event.streams[0];
+                isViewing = true;
+                updateStatus('Connected! Receiving screen share...', 'connected');
+                
+                viewScreenBtn.textContent = 'Stop Viewing';
+                viewScreenBtn.classList.remove('btn--outline');
+                viewScreenBtn.classList.add('btn--secondary');
+                
+                // Add event listeners to video element
+                remoteVideo.onloadedmetadata = function() {
+                    console.log('Remote video metadata loaded');
+                    remoteVideo.play().then(() => {
+                        console.log('Remote video started playing');
+                    }).catch(error => {
+                        console.error('Error playing remote video:', error);
+                    });
+                };
+                
+                remoteVideo.onplay = function() {
+                    console.log('Remote video is playing');
+                };
+                
+                remoteVideo.onerror = function(error) {
+                    console.error('Remote video error:', error);
+                };
+            } else {
+                console.error('No streams in track event');
+            }
         };
         
         peerConnection.onicecandidate = function(event) {
             if (event.candidate) {
-                console.log('Sending ICE candidate');
+                console.log('Sending ICE candidate:', event.candidate);
                 signalingSocket.send(JSON.stringify({
                     type: 'ice-candidate',
                     target: message.from,
                     candidate: event.candidate
                 }));
+            } else {
+                console.log('ICE candidate gathering complete');
             }
         };
         
@@ -177,6 +203,11 @@ async function handleOffer(message) {
         
         peerConnection.oniceconnectionstatechange = function() {
             console.log('ICE connection state:', peerConnection.iceConnectionState);
+            if (peerConnection.iceConnectionState === 'connected') {
+                console.log('ICE connection established!');
+            } else if (peerConnection.iceConnectionState === 'failed') {
+                console.log('ICE connection failed');
+            }
         };
         
         peerConnection.onicegatheringstatechange = function() {
@@ -221,10 +252,14 @@ async function handleAnswer(message) {
 // Handle ICE candidate
 async function handleIceCandidate(message) {
     console.log('Handling ICE candidate from:', message.from);
+    console.log('ICE candidate:', message.candidate);
     
     try {
         if (peerConnection) {
             await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+            console.log('Successfully added ICE candidate');
+        } else {
+            console.error('No peer connection available for ICE candidate');
         }
     } catch (error) {
         console.error('Error handling ICE candidate:', error);
@@ -258,21 +293,28 @@ async function callPeer(targetPeerId) {
         
         // Add local stream
         if (localStream) {
+            console.log('Local stream tracks:', localStream.getTracks());
             localStream.getTracks().forEach(track => {
+                console.log('Adding track to peer connection:', track.kind, track.id);
                 peerConnection.addTrack(track, localStream);
             });
             console.log('Added local stream tracks to peer connection');
+        } else {
+            console.error('No local stream available');
+            return;
         }
         
         // Set up event handlers
         peerConnection.onicecandidate = function(event) {
             if (event.candidate) {
-                console.log('Sending ICE candidate');
+                console.log('Sending ICE candidate:', event.candidate);
                 signalingSocket.send(JSON.stringify({
                     type: 'ice-candidate',
                     target: targetPeerId,
                     candidate: event.candidate
                 }));
+            } else {
+                console.log('ICE candidate gathering complete');
             }
         };
         
@@ -289,6 +331,11 @@ async function callPeer(targetPeerId) {
         
         peerConnection.oniceconnectionstatechange = function() {
             console.log('ICE connection state:', peerConnection.iceConnectionState);
+            if (peerConnection.iceConnectionState === 'connected') {
+                console.log('ICE connection established!');
+            } else if (peerConnection.iceConnectionState === 'failed') {
+                console.log('ICE connection failed');
+            }
         };
         
         peerConnection.onicegatheringstatechange = function() {
