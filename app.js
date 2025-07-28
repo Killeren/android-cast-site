@@ -38,6 +38,8 @@ const iceServers = {
     ]
 };
 
+console.log('ICE servers configuration:', iceServers);
+
 // Initialize WebSocket connection to signaling server
 function connectSignaling() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -207,6 +209,10 @@ async function handleOffer(message) {
                 console.log('ICE connection established!');
             } else if (peerConnection.iceConnectionState === 'failed') {
                 console.log('ICE connection failed');
+            } else if (peerConnection.iceConnectionState === 'checking') {
+                console.log('ICE connection checking...');
+            } else if (peerConnection.iceConnectionState === 'disconnected') {
+                console.log('ICE connection disconnected');
             }
         };
         
@@ -313,6 +319,9 @@ async function callPeer(targetPeerId) {
         peerConnection.onicecandidate = function(event) {
             if (event.candidate) {
                 console.log('Sending ICE candidate:', event.candidate);
+                console.log('Candidate type:', event.candidate.type);
+                console.log('Candidate protocol:', event.candidate.protocol);
+                console.log('Candidate address:', event.candidate.address);
                 signalingSocket.send(JSON.stringify({
                     type: 'ice-candidate',
                     target: targetPeerId,
@@ -340,6 +349,10 @@ async function callPeer(targetPeerId) {
                 console.log('ICE connection established!');
             } else if (peerConnection.iceConnectionState === 'failed') {
                 console.log('ICE connection failed');
+            } else if (peerConnection.iceConnectionState === 'checking') {
+                console.log('ICE connection checking...');
+            } else if (peerConnection.iceConnectionState === 'disconnected') {
+                console.log('ICE connection disconnected');
             }
         };
         
@@ -360,6 +373,14 @@ async function callPeer(targetPeerId) {
             offer: offer
         }));
         console.log('Sent offer to peer');
+        
+        // Set up connection timeout
+        setTimeout(() => {
+            if (peerConnection && peerConnection.iceConnectionState !== 'connected') {
+                console.log('Connection timeout - ICE state:', peerConnection.iceConnectionState);
+                updateStatus('Connection timeout. Please try again.', 'error');
+            }
+        }, 10000); // 10 second timeout
         
     } catch (error) {
         console.error('Error calling peer:', error);
