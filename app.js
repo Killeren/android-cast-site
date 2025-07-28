@@ -105,7 +105,7 @@ async function startScreenShare() {
         
         // Initialize PeerJS connection
         peer = new Peer(sessionId, {
-            host: '0.peerjs.com',
+            host: 'peerjs-server.herokuapp.com',
             port: 443,
             path: '/',
             secure: true,
@@ -274,7 +274,7 @@ function viewScreen() {
         
         // Initialize PeerJS connection
         peer = new Peer(viewerId, {
-            host: '0.peerjs.com',
+            host: 'peerjs-server.herokuapp.com',
             port: 443,
             path: '/',
             secure: true,
@@ -300,7 +300,7 @@ function viewScreen() {
         // Test PeerJS server connectivity
         console.log('Testing PeerJS server connectivity...');
         console.log('PeerJS configuration:', {
-            host: '0.peerjs.com',
+            host: 'peerjs-server.herokuapp.com',
             port: 443,
             path: '/',
             secure: true
@@ -497,13 +497,13 @@ function viewScreen() {
                 console.log('PeerJS server error detected - trying fallback server...');
                 
                 // Try fallback server if this is the first server
-                if (peer && peer.host === '0.peerjs.com') {
+                if (peer && peer.host === 'peerjs-server.herokuapp.com') {
                     console.log('Switching to fallback PeerJS server...');
                     peer.destroy();
                     
                     // Create new peer with fallback server
                     peer = new Peer(viewerId, {
-                        host: 'peerjs-server.herokuapp.com',
+                        host: '0.peerjs.com',
                         port: 443,
                         path: '/',
                         secure: true,
@@ -566,13 +566,13 @@ function viewScreen() {
                 console.log('Connection timeout - trying fallback PeerJS server...');
                 
                 // Try a different PeerJS server as fallback
-                if (peer.host === '0.peerjs.com') {
-                    console.log('Switching to peerjs-server.herokuapp.com...');
+                if (peer.host === 'peerjs-server.herokuapp.com') {
+                    console.log('Switching to 0.peerjs.com...');
                     peer.destroy();
                     
                     // Create new peer with different server
                     peer = new Peer(viewerId, {
-                        host: 'peerjs-server.herokuapp.com',
+                        host: '0.peerjs.com',
                         port: 443,
                         path: '/',
                         secure: true,
@@ -629,6 +629,51 @@ function viewScreen() {
                     testCall.close();
                 } else {
                     console.log('PeerJS server is not working properly');
+                    
+                    // Try the fallback server immediately
+                    console.log('Trying fallback server immediately...');
+                    if (peer && peer.host === 'peerjs-server.herokuapp.com') {
+                        peer.destroy();
+                        
+                        // Create new peer with fallback server
+                        peer = new Peer(viewerId, {
+                            host: '0.peerjs.com',
+                            port: 443,
+                            path: '/',
+                            secure: true,
+                            config: {
+                              iceServers: [
+                                { urls: 'stun:stun.l.google.com:19302' },
+                                { urls: 'stun:stun1.l.google.com:19302' },
+                                { urls: 'stun:stun2.l.google.com:19302' },
+                                {
+                                  urls: 'turn:35.200.221.49:3478?transport=tcp',
+                                  username: 'peeruser',
+                                  credential: 'peerpass123'
+                                },
+                                {
+                                  urls: 'turn:35.200.221.49:3478?transport=udp',
+                                  username: 'peeruser',
+                                  credential: 'peerpass123'
+                                }
+                              ]
+                            }
+                        });
+                        
+                        // Set up event handlers for fallback peer
+                        peer.on('open', function(id) {
+                            console.log('Fallback PeerJS server connected with ID:', id);
+                            setTimeout(() => {
+                                attemptCall();
+                            }, 2000);
+                        });
+                        
+                        peer.on('error', function(err) {
+                            console.error('Fallback PeerJS error:', err);
+                            updateStatus('All PeerJS servers failed. Please try again later.', 'error');
+                            stopViewing();
+                        });
+                    }
                 }
             }
         }, 5000);
