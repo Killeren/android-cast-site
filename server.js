@@ -1,13 +1,21 @@
 const express = require('express');
 const path = require('path');
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const WebSocket = require('ws');
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
 const PORT = process.env.PORT || 9000;
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Create WebSocket server
+const wss = new WebSocket.Server({ 
+    server: server,
+    perMessageDeflate: false // Disable compression for better performance
+});
 
 // Serve static files
 app.use(express.static(path.join(__dirname)));
@@ -43,11 +51,17 @@ app.get('/status', (req, res) => {
 const peers = new Map(); // Store peer connections
 const sessions = new Map(); // Store session information
 
-wss.on('connection', (ws) => {
-    console.log('New WebSocket connection');
+wss.on('connection', (ws, req) => {
+    console.log('New WebSocket connection from:', req.socket.remoteAddress);
     
     let peerId = null;
     let sessionId = null;
+    
+    // Set up ping/pong to keep connection alive
+    ws.isAlive = true;
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
     
     ws.on('message', (message) => {
         try {
@@ -159,8 +173,8 @@ wss.on('connection', (ws) => {
         }
     });
     
-    ws.on('close', () => {
-        console.log(`Peer ${peerId} disconnected`);
+    ws.on('close', (code, reason) => {
+        console.log(`Peer ${peerId} disconnected:`, code, reason);
         
         if (peerId) {
             // Remove from peers
@@ -181,6 +195,19 @@ wss.on('connection', (ws) => {
     });
 });
 
+// Set up ping interval to detect dead connections
+const pingInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+            console.log('Terminating dead connection');
+            return ws.terminate();
+        }
+        
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 30000); // Check every 30 seconds
+
 // Clean up old connections periodically
 setInterval(() => {
     const now = Date.now();
@@ -197,4 +224,5 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`WebRTC signaling server running on port ${PORT}`);
     console.log(`Server URL: http://localhost:${PORT}`);
     console.log(`WebSocket URL: ws://localhost:${PORT}`);
+    console.log(`HTTPS WebSocket URL: wss://localhost:${PORT}`);
 }); 

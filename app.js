@@ -52,6 +52,13 @@ function connectSignaling() {
     signalingSocket.onopen = function() {
         console.log('Connected to signaling server');
         updateStatus('Connected to signaling server', 'connected');
+        
+        // Send a ping to keep connection alive
+        setInterval(() => {
+            if (signalingSocket && signalingSocket.readyState === WebSocket.OPEN) {
+                signalingSocket.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000); // Send ping every 30 seconds
     };
     
     signalingSocket.onmessage = function(event) {
@@ -91,9 +98,17 @@ function connectSignaling() {
         }
     };
     
-    signalingSocket.onclose = function() {
-        console.log('Disconnected from signaling server');
+    signalingSocket.onclose = function(event) {
+        console.log('Disconnected from signaling server:', event.code, event.reason);
         updateStatus('Disconnected from signaling server', 'error');
+        
+        // Try to reconnect after a delay
+        setTimeout(() => {
+            if (!isSharing && !isViewing) {
+                console.log('Attempting to reconnect to signaling server...');
+                connectSignaling();
+            }
+        }, 3000);
     };
     
     signalingSocket.onerror = function(error) {
@@ -155,15 +170,27 @@ async function handleOffer(message) {
                 updateStatus('WebRTC connection established!', 'connected');
             } else if (peerConnection.connectionState === 'failed') {
                 updateStatus('WebRTC connection failed', 'error');
+            } else if (peerConnection.connectionState === 'disconnected') {
+                updateStatus('WebRTC connection disconnected', 'error');
             }
+        };
+        
+        peerConnection.oniceconnectionstatechange = function() {
+            console.log('ICE connection state:', peerConnection.iceConnectionState);
+        };
+        
+        peerConnection.onicegatheringstatechange = function() {
+            console.log('ICE gathering state:', peerConnection.iceGatheringState);
         };
         
         // Set remote description
         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
+        console.log('Set remote description successfully');
         
         // Create answer
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
+        console.log('Created and set local answer');
         
         // Send answer
         signalingSocket.send(JSON.stringify({
@@ -171,6 +198,7 @@ async function handleOffer(message) {
             target: message.from,
             answer: answer
         }));
+        console.log('Sent answer to peer');
         
     } catch (error) {
         console.error('Error handling offer:', error);
@@ -233,6 +261,7 @@ async function callPeer(targetPeerId) {
             localStream.getTracks().forEach(track => {
                 peerConnection.addTrack(track, localStream);
             });
+            console.log('Added local stream tracks to peer connection');
         }
         
         // Set up event handlers
@@ -253,12 +282,23 @@ async function callPeer(targetPeerId) {
                 updateStatus('WebRTC connection established!', 'connected');
             } else if (peerConnection.connectionState === 'failed') {
                 updateStatus('WebRTC connection failed', 'error');
+            } else if (peerConnection.connectionState === 'disconnected') {
+                updateStatus('WebRTC connection disconnected', 'error');
             }
+        };
+        
+        peerConnection.oniceconnectionstatechange = function() {
+            console.log('ICE connection state:', peerConnection.iceConnectionState);
+        };
+        
+        peerConnection.onicegatheringstatechange = function() {
+            console.log('ICE gathering state:', peerConnection.iceGatheringState);
         };
         
         // Create offer
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
+        console.log('Created and set local offer');
         
         // Send offer
         signalingSocket.send(JSON.stringify({
@@ -266,6 +306,7 @@ async function callPeer(targetPeerId) {
             target: targetPeerId,
             offer: offer
         }));
+        console.log('Sent offer to peer');
         
     } catch (error) {
         console.error('Error calling peer:', error);
