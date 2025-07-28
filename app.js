@@ -297,12 +297,32 @@ function viewScreen() {
             }
         });
         
+        // Test PeerJS server connectivity
+        console.log('Testing PeerJS server connectivity...');
+        console.log('PeerJS configuration:', {
+            host: '0.peerjs.com',
+            port: 443,
+            path: '/',
+            secure: true
+        });
+        
         // Handle peer connection events
         peer.on('open', function(id) {
             updateStatus(`Calling screen sharer (${sessionId})...`, 'waiting');
             console.log('Viewer peer opened with ID:', id);
             console.log('Target sharer ID:', sessionId);
             console.log('PeerJS server connection established');
+            console.log('Peer object details:', {
+                id: peer.id,
+                destroyed: peer.destroyed,
+                disconnected: peer.disconnected,
+                connection: peer.connection ? peer.connection.connectionState : 'No connection'
+            });
+            
+            // Test if peer.call method exists and is working
+            console.log('Testing peer.call method...');
+            console.log('typeof peer.call:', typeof peer.call);
+            console.log('peer.call available:', peer.call !== undefined);
             
             // Add a small delay to ensure the sharer is ready
             setTimeout(() => {
@@ -352,8 +372,19 @@ function viewScreen() {
                     return;
                 }
                 
+                console.log('peer.call method details:', {
+                    type: typeof peer.call,
+                    isFunction: typeof peer.call === 'function',
+                    toString: peer.call.toString().substring(0, 100) + '...'
+                });
+                
                 // Call the screen sharer
+                console.log('About to call peer.call with session ID:', sessionId);
                 currentCall = peer.call(sessionId, null); // No stream from viewer
+                
+                console.log('peer.call result:', currentCall);
+                console.log('Call object type:', typeof currentCall);
+                console.log('Call object:', currentCall);
                 
                 if (currentCall) {
                     console.log('Call initiated to sharer:', sessionId);
@@ -473,8 +504,55 @@ function viewScreen() {
         // Timeout if connection takes too long
         setTimeout(() => {
             if (!isViewing && peer) {
-                updateStatus('Connection timeout. Please try again.', 'error');
-                stopViewing();
+                console.log('Connection timeout - trying fallback PeerJS server...');
+                
+                // Try a different PeerJS server as fallback
+                if (peer.host === '0.peerjs.com') {
+                    console.log('Switching to peerjs-server.herokuapp.com...');
+                    peer.destroy();
+                    
+                    // Create new peer with different server
+                    peer = new Peer(viewerId, {
+                        host: 'peerjs-server.herokuapp.com',
+                        port: 443,
+                        path: '/',
+                        secure: true,
+                        config: {
+                          iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            { urls: 'stun:stun2.l.google.com:19302' },
+                            {
+                              urls: 'turn:35.200.221.49:3478?transport=tcp',
+                              username: 'peeruser',
+                              credential: 'peerpass123'
+                            },
+                            {
+                              urls: 'turn:35.200.221.49:3478?transport=udp',
+                              username: 'peeruser',
+                              credential: 'peerpass123'
+                            }
+                          ]
+                        }
+                    });
+                    
+                    // Set up event handlers for fallback peer
+                    peer.on('open', function(id) {
+                        console.log('Fallback PeerJS server connected with ID:', id);
+                        setTimeout(() => {
+                            attemptCall();
+                        }, 2000);
+                    });
+                    
+                    peer.on('error', function(err) {
+                        console.error('Fallback PeerJS error:', err);
+                        updateStatus('All PeerJS servers failed. Please try again later.', 'error');
+                        stopViewing();
+                    });
+                } else {
+                    updateStatus('Connection timeout. Please try again.', 'error');
+                    stopViewing();
+                }
             }
         }, 10000);
         
