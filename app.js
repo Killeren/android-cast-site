@@ -1,14 +1,15 @@
 // WebRTC Screen Sharing Application
 // Using native WebRTC with custom signaling server
 
-let localStream = null;
-let remoteStream = null;
 let peerConnection = null;
 let signalingSocket = null;
 let currentSessionId = null;
+let myPeerId = null;
+let localStream = null;
+let remoteStream = null;
 let isSharing = false;
 let isViewing = false;
-let myPeerId = null;
+let isFallbackMode = false; // Track if we're in fallback mode
 
 // DOM elements
 const sessionIdInput = document.getElementById('sessionId');
@@ -280,11 +281,26 @@ async function handleAnswer(message) {
     console.log('Handling answer from:', message.from);
     console.log('Answer SDP:', message.answer.sdp.substring(0, 200) + '...');
     console.log('Current peer connection state:', peerConnection ? peerConnection.connectionState : 'null');
+    console.log('Fallback mode:', isFallbackMode);
     
     try {
         if (peerConnection && peerConnection.connectionState !== 'closed') {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
-            console.log('Set remote answer successfully');
+            // Check if we're in fallback mode and the connection is in the right state
+            if (isFallbackMode) {
+                console.log('Processing answer in fallback mode');
+                // In fallback mode, we expect the connection to be in 'have-local-offer' state
+                if (peerConnection.connectionState === 'have-local-offer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+                    console.log('Set remote answer successfully in fallback mode');
+                } else {
+                    console.warn('Peer connection in wrong state for fallback answer:', peerConnection.connectionState);
+                    updateStatus('Connection state error. Please try again.', 'error');
+                }
+            } else {
+                // Normal mode
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+                console.log('Set remote answer successfully');
+            }
         } else {
             console.error('Peer connection is not available or closed');
             updateStatus('Connection lost. Please try again.', 'error');
@@ -331,12 +347,16 @@ function handlePeerList(message) {
     }
 }
 
-// Call a specific peer
+// Call a peer
 async function callPeer(targetPeerId) {
     console.log('Calling peer:', targetPeerId);
+    console.log('Current role - isSharing:', isSharing, 'isViewing:', isViewing);
+    
+    // Reset fallback mode flag
+    isFallbackMode = false;
     
     try {
-        // Create peer connection for sharer
+        // Create peer connection
         console.log('Creating peer connection with ICE servers:', iceServers);
         peerConnection = new RTCPeerConnection(iceServers);
         console.log('Peer connection created successfully');
@@ -425,6 +445,9 @@ async function callPeer(targetPeerId) {
                     console.warn('No ICE candidates generated. Trying fallback approach...');
                     updateStatus('Network connectivity issue. Trying alternative connection method...', 'error');
                     
+                    // Set fallback mode flag
+                    isFallbackMode = true;
+                    
                     // Close the original connection
                     peerConnection.close();
                     
@@ -482,13 +505,25 @@ async function callPeer(targetPeerId) {
                         };
                     }
                     
+                    // Add local stream only if we're the sharer
+                    if (localStream && isSharing) {
+                        console.log('Adding local stream to fallback connection');
+                        localStream.getTracks().forEach(track => {
+                            console.log('Adding track to fallback connection:', track.kind, track.id);
+                            peerConnection.addTrack(track, localStream);
+                        });
+                    }
+                    
                     // Try to create a new offer with fallback servers
                     peerConnection.createOffer().then(offer => {
-                        peerConnection.setLocalDescription(offer);
+                        console.log('Created fallback offer:', offer.sdp.substring(0, 200) + '...');
+                        return peerConnection.setLocalDescription(offer);
+                    }).then(() => {
+                        console.log('Set local fallback offer');
                         signalingSocket.send(JSON.stringify({
                             type: 'offer',
                             target: targetPeerId,
-                            offer: offer
+                            offer: peerConnection.localDescription
                         }));
                         console.log('Sent fallback offer');
                     }).catch(error => {
