@@ -36,12 +36,12 @@ const iceServers = {
         { urls: 'stun:stun.voipstunt.com:3478' },
         { urls: 'stun:stun.voxgratia.org:3478' },
         {
-            urls: 'turn:YOUR_GCP_EXTERNAL_IP:3478?transport=udp',
+            urls: 'turn:35.200.221.49:3478?transport=udp',
             username: 'peeruser',
             credential: 'peerpass123'
         },
         {
-            urls: 'turn:YOUR_GCP_EXTERNAL_IP:3478?transport=tcp',
+            urls: 'turn:35.200.221.49:3478?transport=tcp',
             username: 'peeruser',
             credential: 'peerpass123'
         }
