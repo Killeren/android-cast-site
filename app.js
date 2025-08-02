@@ -115,6 +115,23 @@ async function testIceServers() {
     }
 }
 
+// Debug function to check video element status
+function debugVideoElement(videoElement, label) {
+    console.log(`=== ${label} Video Debug ===`);
+    console.log('Video element:', videoElement);
+    console.log('srcObject:', videoElement.srcObject);
+    console.log('currentSrc:', videoElement.currentSrc);
+    console.log('readyState:', videoElement.readyState);
+    console.log('videoWidth:', videoElement.videoWidth);
+    console.log('videoHeight:', videoElement.videoHeight);
+    console.log('paused:', videoElement.paused);
+    console.log('ended:', videoElement.ended);
+    console.log('display style:', videoElement.style.display);
+    console.log('visibility:', videoElement.style.visibility);
+    console.log('opacity:', videoElement.style.opacity);
+    console.log('=======================');
+}
+
 // Initialize Firebase connection
 function initializeFirebase() {
     try {
@@ -636,9 +653,33 @@ async function setupViewerConnection() {
         // Set up track handling
         peerConnection.ontrack = function(event) {
             console.log('Received remote stream:', event.streams);
+            console.log('Stream tracks:', event.streams[0]?.getTracks());
+            console.log('Track event details:', event);
+            
             if (event.streams && event.streams[0]) {
-                remoteVideo.srcObject = event.streams[0];
-                remoteStream = event.streams[0];
+                const remoteStream = event.streams[0];
+                console.log('Setting remote video srcObject');
+                console.log('Remote stream tracks:', remoteStream.getTracks());
+                
+                // Debug video element before setting stream
+                debugVideoElement(remoteVideo, 'Before Setting Stream');
+                
+                // Set the remote video source
+                remoteVideo.srcObject = remoteStream;
+                
+                // Store the remote stream
+                window.remoteStream = remoteStream;
+                
+                // Ensure video element is properly configured
+                remoteVideo.muted = false;
+                remoteVideo.autoplay = true;
+                remoteVideo.playsInline = true;
+                remoteVideo.style.display = 'block';
+                remoteVideo.style.width = '100%';
+                remoteVideo.style.height = 'auto';
+                remoteVideo.style.visibility = 'visible';
+                remoteVideo.style.opacity = '1';
+                
                 isViewing = true;
                 updateStatus('Connected! Receiving stream...', 'connected');
                 updateModeIndicator('Connected');
@@ -661,8 +702,14 @@ async function setupViewerConnection() {
                 // Add event listeners to video element
                 remoteVideo.onloadedmetadata = function() {
                     console.log('Remote video metadata loaded');
+                    console.log('Video dimensions:', remoteVideo.videoWidth, 'x', remoteVideo.videoHeight);
+                    debugVideoElement(remoteVideo, 'After Metadata Loaded');
+                    
                     remoteVideo.play().then(() => {
                         console.log('Remote video started playing');
+                        console.log('Video element srcObject:', remoteVideo.srcObject);
+                        console.log('Video element currentSrc:', remoteVideo.currentSrc);
+                        debugVideoElement(remoteVideo, 'After Play Started');
                     }).catch(error => {
                         console.error('Error playing remote video:', error);
                     });
@@ -670,11 +717,18 @@ async function setupViewerConnection() {
                 
                 remoteVideo.onplay = function() {
                     console.log('Remote video is playing');
+                    console.log('Video element readyState:', remoteVideo.readyState);
+                    debugVideoElement(remoteVideo, 'On Play Event');
                 };
                 
                 remoteVideo.onerror = function(error) {
                     console.error('Remote video error:', error);
                 };
+                
+                // Debug video element after setup
+                debugVideoElement(remoteVideo, 'After Setup');
+                
+                console.log('Remote video element updated');
             } else {
                 console.error('No streams in track event');
             }

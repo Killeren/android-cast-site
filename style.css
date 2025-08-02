@@ -906,15 +906,16 @@ body {
     border-radius: var(--radius-lg);
     border: 2px solid var(--color-card-border);
     object-fit: contain;
-}
-
-/* Hide videos initially */
-.video-wrapper video:not([src]) {
-    display: none;
-}
-
-.video-wrapper video[src] {
     display: block;
+}
+
+/* Show videos when they have content */
+.video-wrapper video[srcObject] {
+    display: block !important;
+}
+
+.video-wrapper video:not([srcObject]) {
+    display: none;
 }
 
 /* When video has srcObject (stream), show it */
