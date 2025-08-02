@@ -1,19 +1,19 @@
 // WebRTC Screen Sharing Application
 // Using native WebRTC with Firebase/Firestore signaling
 
-import { db } from './firebase-config.js';
-import { 
-    collection, 
-    doc, 
-    addDoc, 
-    setDoc, 
-    getDoc, 
-    onSnapshot, 
-    deleteDoc,
-    query,
-    where,
-    getDocs
-} from "firebase/firestore";
+// Firebase configuration
+const firebaseConfig = {
+    apiKey: "AIzaSyBu2EE29vWABYqIdrkc71aLEvYbdT3KIkU",
+    authDomain: "my-webrtc-app-charan.firebaseapp.com",
+    projectId: "my-webrtc-app-charan",
+    storageBucket: "my-webrtc-app-charan.appspot.com",
+    messagingSenderId: "991396321713",
+    appId: "1:991396321713:web:f530e9cebdd324818c4590",
+    measurementId: "G-ZPYPY8TE58"
+};
+
+// Initialize Firebase
+let db = null;
 
 let peerConnection = null;
 let currentSessionId = null;
@@ -117,8 +117,27 @@ async function testIceServers() {
 
 // Initialize Firebase connection
 function initializeFirebase() {
-    console.log('Initializing Firebase connection');
-    updateStatus('Connected to Firebase', 'connected');
+    try {
+        if (typeof firebase !== 'undefined') {
+            // Initialize Firebase
+            firebase.initializeApp(firebaseConfig);
+            
+            // Initialize Firestore
+            db = firebase.firestore();
+            
+            console.log('Firebase initialized successfully');
+            updateStatus('Connected to Firebase', 'connected');
+            return true;
+        } else {
+            console.error('Firebase CDN not loaded');
+            updateStatus('Firebase not loaded. Please check your connection.', 'error');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error initializing Firebase:', error);
+        updateStatus('Error connecting to Firebase', 'error');
+        return false;
+    }
 }
 
 // Create a new session in Firestore
@@ -127,14 +146,14 @@ async function createSession(sessionId, mode = 'screen-share') {
         console.log('Creating session in Firestore:', sessionId, 'mode:', mode);
         
         // Create session document
-        sessionDoc = doc(db, 'castSessions', sessionId);
+        sessionDoc = db.collection('castSessions').doc(sessionId);
         
         // Create subcollections for ICE candidates
-        offerCandidates = collection(sessionDoc, 'offerCandidates');
-        answerCandidates = collection(sessionDoc, 'answerCandidates');
+        offerCandidates = sessionDoc.collection('offerCandidates');
+        answerCandidates = sessionDoc.collection('answerCandidates');
         
         // Initialize session document
-        await setDoc(sessionDoc, {
+        await sessionDoc.set({
             sessionId: sessionId,
             mode: mode,
             createdAt: new Date(),
@@ -155,13 +174,13 @@ async function joinSession(sessionId) {
     try {
         console.log('Joining session in Firestore:', sessionId);
         
-        sessionDoc = doc(db, 'castSessions', sessionId);
-        offerCandidates = collection(sessionDoc, 'offerCandidates');
-        answerCandidates = collection(sessionDoc, 'answerCandidates');
+        sessionDoc = db.collection('castSessions').doc(sessionId);
+        offerCandidates = sessionDoc.collection('offerCandidates');
+        answerCandidates = sessionDoc.collection('answerCandidates');
         
         // Check if session exists
-        const sessionSnapshot = await getDoc(sessionDoc);
-        if (!sessionSnapshot.exists()) {
+        const sessionSnapshot = await sessionDoc.get();
+        if (!sessionSnapshot.exists) {
             throw new Error('Session not found');
         }
         
@@ -417,7 +436,7 @@ async function setupSharerConnection() {
             if (event.candidate) {
                 console.log('Sending ICE candidate from sharer:', event.candidate);
                 try {
-                    await addDoc(offerCandidates, event.candidate.toJSON());
+                    await offerCandidates.add(event.candidate.toJSON());
                 } catch (error) {
                     console.error('Error adding offer candidate:', error);
                 }
@@ -450,7 +469,7 @@ async function setupSharerConnection() {
         console.log('Set local offer description');
         
         // Save offer to Firestore
-        await setDoc(sessionDoc, { 
+        await sessionDoc.set({ 
             offer: { type: offer.type, sdp: offer.sdp },
             sharerActive: true,
             lastUpdated: new Date()
@@ -458,7 +477,7 @@ async function setupSharerConnection() {
         console.log('Saved offer to Firestore');
         
         // Listen for answer
-        unsubscribeSession = onSnapshot(sessionDoc, async (snapshot) => {
+        unsubscribeSession = sessionDoc.onSnapshot(async (snapshot) => {
             const data = snapshot.data();
             if (data && data.answer && !peerConnection.currentRemoteDescription) {
                 console.log('Received answer from viewer');
@@ -473,7 +492,7 @@ async function setupSharerConnection() {
         });
         
         // Listen for answer ICE candidates
-        unsubscribeAnswerCandidates = onSnapshot(answerCandidates, async (snapshot) => {
+        unsubscribeAnswerCandidates = answerCandidates.onSnapshot(async (snapshot) => {
             snapshot.docChanges().forEach(async (change) => {
                 if (change.type === 'added') {
                     try {
@@ -666,7 +685,7 @@ async function setupViewerConnection() {
             if (event.candidate) {
                 console.log('Sending ICE candidate from viewer:', event.candidate);
                 try {
-                    await addDoc(answerCandidates, event.candidate.toJSON());
+                    await answerCandidates.add(event.candidate.toJSON());
                 } catch (error) {
                     console.error('Error adding answer candidate:', error);
                 }
@@ -693,7 +712,7 @@ async function setupViewerConnection() {
         };
         
         // Get the offer from Firestore
-        const sessionSnapshot = await getDoc(sessionDoc);
+        const sessionSnapshot = await sessionDoc.get();
         const sessionData = sessionSnapshot.data();
         
         if (!sessionData || !sessionData.offer) {
@@ -713,7 +732,7 @@ async function setupViewerConnection() {
         console.log('Created and set local answer');
         
         // Save answer to Firestore
-        await setDoc(sessionDoc, { 
+        await sessionDoc.set({ 
             answer: { type: answer.type, sdp: answer.sdp },
             viewerActive: true,
             lastUpdated: new Date()
@@ -721,7 +740,7 @@ async function setupViewerConnection() {
         console.log('Saved answer to Firestore');
         
         // Listen for offer ICE candidates
-        unsubscribeOfferCandidates = onSnapshot(offerCandidates, async (snapshot) => {
+        unsubscribeOfferCandidates = offerCandidates.onSnapshot(async (snapshot) => {
             snapshot.docChanges().forEach(async (change) => {
                 if (change.type === 'added') {
                     try {
