@@ -372,6 +372,36 @@ async function startVideoCall() {
         
         localVideo.srcObject = localStream;
         
+        // Debug local video setup
+        console.log('Setting local video srcObject for caller');
+        debugVideoElement(localVideo, 'Caller Local Video Setup');
+        
+        // Ensure local video is properly configured
+        localVideo.muted = true; // Mute local video to prevent feedback
+        localVideo.autoplay = true;
+        localVideo.playsInline = true;
+        localVideo.style.display = 'block';
+        localVideo.style.width = '100%';
+        localVideo.style.height = 'auto';
+        localVideo.style.visibility = 'visible';
+        localVideo.style.opacity = '1';
+        
+        // Add event listeners to local video element
+        localVideo.onloadedmetadata = function() {
+            console.log('Caller local video metadata loaded');
+            console.log('Caller local video dimensions:', localVideo.videoWidth, 'x', localVideo.videoHeight);
+            debugVideoElement(localVideo, 'Caller Local Video After Metadata');
+        };
+        
+        localVideo.onplay = function() {
+            console.log('Caller local video is playing');
+            debugVideoElement(localVideo, 'Caller Local Video On Play');
+        };
+        
+        localVideo.onerror = function(error) {
+            console.error('Caller local video error:', error);
+        };
+        
         // Create session and setup connection
         const sessionCreated = await createSession(sessionId, 'video-call');
         if (sessionCreated) {
@@ -439,6 +469,36 @@ async function startAudioCall() {
         
         localVideo.srcObject = localStream;
         
+        // Debug local video setup for audio call
+        console.log('Setting local video srcObject for audio caller');
+        debugVideoElement(localVideo, 'Audio Caller Local Video Setup');
+        
+        // Ensure local video is properly configured (will be blank for audio-only)
+        localVideo.muted = true; // Mute local video to prevent feedback
+        localVideo.autoplay = true;
+        localVideo.playsInline = true;
+        localVideo.style.display = 'block';
+        localVideo.style.width = '100%';
+        localVideo.style.height = 'auto';
+        localVideo.style.visibility = 'visible';
+        localVideo.style.opacity = '1';
+        
+        // Add event listeners to local video element
+        localVideo.onloadedmetadata = function() {
+            console.log('Audio caller local video metadata loaded');
+            console.log('Audio caller local video dimensions:', localVideo.videoWidth, 'x', localVideo.videoHeight);
+            debugVideoElement(localVideo, 'Audio Caller Local Video After Metadata');
+        };
+        
+        localVideo.onplay = function() {
+            console.log('Audio caller local video is playing');
+            debugVideoElement(localVideo, 'Audio Caller Local Video On Play');
+        };
+        
+        localVideo.onerror = function(error) {
+            console.error('Audio caller local video error:', error);
+        };
+        
         // Create session and setup connection
         const sessionCreated = await createSession(sessionId, 'audio-call');
         if (sessionCreated) {
@@ -480,6 +540,70 @@ async function setupSharerConnection() {
             console.log('Adding track to peer connection:', track.kind, track.id);
             peerConnection.addTrack(track, localStream);
         });
+        
+        // Set up track handling for incoming stream (bidirectional calls)
+        peerConnection.ontrack = function(event) {
+            console.log('Sharer received remote stream:', event.streams);
+            console.log('Sharer stream tracks:', event.streams[0]?.getTracks());
+            
+            if (event.streams && event.streams[0]) {
+                const remoteStream = event.streams[0];
+                console.log('Sharer setting remote video srcObject');
+                console.log('Sharer remote stream tracks:', remoteStream.getTracks());
+                
+                // Debug video element before setting stream
+                debugVideoElement(remoteVideo, 'Sharer Before Setting Stream');
+                
+                // Set the remote video source
+                remoteVideo.srcObject = remoteStream;
+                
+                // Store the remote stream
+                window.remoteStream = remoteStream;
+                
+                // Ensure video element is properly configured
+                remoteVideo.muted = false;
+                remoteVideo.autoplay = true;
+                remoteVideo.playsInline = true;
+                remoteVideo.style.display = 'block';
+                remoteVideo.style.width = '100%';
+                remoteVideo.style.height = 'auto';
+                remoteVideo.style.visibility = 'visible';
+                remoteVideo.style.opacity = '1';
+                
+                // Add event listeners to video element
+                remoteVideo.onloadedmetadata = function() {
+                    console.log('Sharer remote video metadata loaded');
+                    console.log('Sharer video dimensions:', remoteVideo.videoWidth, 'x', remoteVideo.videoHeight);
+                    debugVideoElement(remoteVideo, 'Sharer After Metadata Loaded');
+                    
+                    remoteVideo.play().then(() => {
+                        console.log('Sharer remote video started playing');
+                        console.log('Sharer video element srcObject:', remoteVideo.srcObject);
+                        console.log('Sharer video element currentSrc:', remoteVideo.currentSrc);
+                        debugVideoElement(remoteVideo, 'Sharer After Play Started');
+                    }).catch(error => {
+                        console.error('Sharer error playing remote video:', error);
+                    });
+                };
+                
+                remoteVideo.onplay = function() {
+                    console.log('Sharer remote video is playing');
+                    console.log('Sharer video element readyState:', remoteVideo.readyState);
+                    debugVideoElement(remoteVideo, 'Sharer On Play Event');
+                };
+                
+                remoteVideo.onerror = function(error) {
+                    console.error('Sharer remote video error:', error);
+                };
+                
+                // Debug video element after setup
+                debugVideoElement(remoteVideo, 'Sharer After Setup');
+                
+                console.log('Sharer remote video element updated');
+            } else {
+                console.error('Sharer: No streams in track event');
+            }
+        };
         
         // Set up ICE candidate handling
         peerConnection.onicecandidate = async function(event) {
@@ -638,6 +762,36 @@ async function joinVideoCall() {
         
         localVideo.srcObject = localStream;
         
+        // Debug local video setup for viewer
+        console.log('Setting local video srcObject for video call viewer');
+        debugVideoElement(localVideo, 'Video Call Viewer Local Video Setup');
+        
+        // Ensure local video is properly configured
+        localVideo.muted = true; // Mute local video to prevent feedback
+        localVideo.autoplay = true;
+        localVideo.playsInline = true;
+        localVideo.style.display = 'block';
+        localVideo.style.width = '100%';
+        localVideo.style.height = 'auto';
+        localVideo.style.visibility = 'visible';
+        localVideo.style.opacity = '1';
+        
+        // Add event listeners to local video element
+        localVideo.onloadedmetadata = function() {
+            console.log('Video call viewer local video metadata loaded');
+            console.log('Video call viewer local video dimensions:', localVideo.videoWidth, 'x', localVideo.videoHeight);
+            debugVideoElement(localVideo, 'Video Call Viewer Local Video After Metadata');
+        };
+        
+        localVideo.onplay = function() {
+            console.log('Video call viewer local video is playing');
+            debugVideoElement(localVideo, 'Video Call Viewer Local Video On Play');
+        };
+        
+        localVideo.onerror = function(error) {
+            console.error('Video call viewer local video error:', error);
+        };
+        
         // Join session and setup connection
         const sessionJoined = await joinSession(sessionId);
         if (sessionJoined) {
@@ -704,6 +858,36 @@ async function joinAudioCall() {
         console.log('Local audio call stream tracks:', localStream.getTracks());
         
         localVideo.srcObject = localStream;
+        
+        // Debug local video setup for audio call viewer
+        console.log('Setting local video srcObject for audio call viewer');
+        debugVideoElement(localVideo, 'Audio Call Viewer Local Video Setup');
+        
+        // Ensure local video is properly configured (will be blank for audio-only)
+        localVideo.muted = true; // Mute local video to prevent feedback
+        localVideo.autoplay = true;
+        localVideo.playsInline = true;
+        localVideo.style.display = 'block';
+        localVideo.style.width = '100%';
+        localVideo.style.height = 'auto';
+        localVideo.style.visibility = 'visible';
+        localVideo.style.opacity = '1';
+        
+        // Add event listeners to local video element
+        localVideo.onloadedmetadata = function() {
+            console.log('Audio call viewer local video metadata loaded');
+            console.log('Audio call viewer local video dimensions:', localVideo.videoWidth, 'x', localVideo.videoHeight);
+            debugVideoElement(localVideo, 'Audio Call Viewer Local Video After Metadata');
+        };
+        
+        localVideo.onplay = function() {
+            console.log('Audio call viewer local video is playing');
+            debugVideoElement(localVideo, 'Audio Call Viewer Local Video On Play');
+        };
+        
+        localVideo.onerror = function(error) {
+            console.error('Audio call viewer local video error:', error);
+        };
         
         // Join session and setup connection
         const sessionJoined = await joinSession(sessionId);
@@ -832,10 +1016,15 @@ async function setupViewerConnection() {
             console.log('Setting up bidirectional call - adding local stream');
             if (localStream) {
                 localStream.getTracks().forEach(track => {
-                    console.log('Adding local track to peer connection:', track.kind);
+                    console.log('Adding local track to peer connection:', track.kind, track.id);
                     peerConnection.addTrack(track, localStream);
                 });
+                console.log('All local tracks added to peer connection for bidirectional call');
+            } else {
+                console.error('No local stream available for bidirectional call');
             }
+        } else {
+            console.log('Not a bidirectional call (screen sharing), skipping local stream addition');
         }
         
         // Set up ICE candidate handling
