@@ -543,8 +543,13 @@ async function setupSharerConnection() {
         
         // Set up track handling for incoming stream (bidirectional calls)
         peerConnection.ontrack = function(event) {
+            console.log('=== SHARER ONTRACK EVENT ===');
             console.log('Sharer received remote stream:', event.streams);
             console.log('Sharer stream tracks:', event.streams[0]?.getTracks());
+            console.log('Track event details:', event);
+            console.log('Track kind:', event.track?.kind);
+            console.log('Track id:', event.track?.id);
+            console.log('============================');
             
             if (event.streams && event.streams[0]) {
                 const remoteStream = event.streams[0];
@@ -653,12 +658,17 @@ async function setupSharerConnection() {
         // Listen for answer
         unsubscribeSession = sessionDoc.onSnapshot(async (snapshot) => {
             const data = snapshot.data();
+            console.log('Sharer received session update:', data);
+            
             if (data && data.answer && !peerConnection.currentRemoteDescription) {
                 console.log('Received answer from viewer');
                 try {
                     const answer = new RTCSessionDescription(data.answer);
                     await peerConnection.setRemoteDescription(answer);
                     console.log('Set remote answer description');
+                    
+                    // Now that we have the answer, the viewer's stream should come through
+                    console.log('Waiting for viewer stream...');
                 } catch (error) {
                     console.error('Error setting remote answer:', error);
                 }
@@ -1020,6 +1030,12 @@ async function setupViewerConnection() {
                     peerConnection.addTrack(track, localStream);
                 });
                 console.log('All local tracks added to peer connection for bidirectional call');
+                
+                // Debug: Check what tracks are in the peer connection
+                setTimeout(() => {
+                    console.log('Peer connection senders:', peerConnection.getSenders());
+                    console.log('Peer connection transceivers:', peerConnection.getTransceivers());
+                }, 1000);
             } else {
                 console.error('No local stream available for bidirectional call');
             }
@@ -1067,7 +1083,14 @@ async function setupViewerConnection() {
                 // Create and set local answer
                 const answer = await peerConnection.createAnswer();
                 console.log('Created and set local answer');
+                console.log('Answer SDP:', answer.sdp.substring(0, 200) + '...');
                 await peerConnection.setLocalDescription(answer);
+                
+                // Debug: Check if local tracks are included in the answer
+                console.log('Local tracks in peer connection after answer creation:');
+                peerConnection.getSenders().forEach(sender => {
+                    console.log('Sender track:', sender.track?.kind, sender.track?.id);
+                });
                 
                 // Save answer to Firestore
                 await sessionDoc.update({
@@ -1075,6 +1098,7 @@ async function setupViewerConnection() {
                         type: answer.type,
                         sdp: answer.sdp
                     },
+                    viewerActive: true,
                     lastUpdated: new Date()
                 });
                 console.log('Saved answer to Firestore');
