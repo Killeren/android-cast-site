@@ -253,182 +253,215 @@ function disableButtons(disabled) {
     });
 }
 
-// Start screen sharing (sharer role)
+// Start screen sharing
 async function startScreenShare() {
+    const sessionId = sessionIdInput.value.trim();
+    if (!sessionId) {
+        alert('Please enter or generate a session ID');
+        return;
+    }
+    
+    if (isSharing) {
+        stopAllConnections();
+        return;
+    }
+    
     try {
-        updateStatus('Requesting screen share permission...', 'waiting');
+        updateStatus('Requesting screen capture...', 'waiting');
         disableButtons(true);
         
-        // Check browser compatibility
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-            throw new Error('Screen sharing is not supported in this browser. Please use Chrome, Firefox, or Safari.');
-        }
-        
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            throw new Error('Screen sharing requires HTTPS. Please access this site via HTTPS.');
-        }
-        
-        // Get screen stream
+        // Request screen capture with audio
         localStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
-                cursor: 'always'
+                cursor: 'always',
+                displaySurface: 'monitor'
             },
-            audio: false
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                sampleRate: 44100
+            }
         });
         
-        // Display local video
+        console.log('Screen capture stream obtained:', localStream);
+        console.log('Screen stream tracks:', localStream.getTracks());
+        
+        // Check if audio track is available
+        const audioTracks = localStream.getAudioTracks();
+        const videoTracks = localStream.getVideoTracks();
+        
+        console.log('Audio tracks:', audioTracks.length);
+        console.log('Video tracks:', videoTracks.length);
+        
+        if (audioTracks.length > 0) {
+            console.log('Audio track found:', audioTracks[0].label);
+            updateStatus('Screen sharing with audio enabled', 'connected');
+        } else {
+            console.log('No audio track in screen capture');
+            updateStatus('Screen sharing (video only)', 'connected');
+        }
+        
         localVideo.srcObject = localStream;
         
-        // Get session ID
-        const sessionId = sessionIdInput.value.trim();
-        if (!sessionId) {
-            throw new Error('Please enter a session ID');
-        }
-        
-        currentSessionId = sessionId;
-        
-        // Create session in Firestore
+        // Create session and setup connection
         const sessionCreated = await createSession(sessionId, 'screen-share');
-        if (!sessionCreated) {
-            throw new Error('Failed to create session');
+        if (sessionCreated) {
+            await setupSharerConnection();
         }
         
-        updateStatus(`Sharing screen with ID: ${sessionId}. Waiting for viewer...`, 'waiting');
-        updateModeIndicator('Screen Sharing');
         isSharing = true;
-        
         startShareBtn.textContent = 'Stop Sharing';
         startShareBtn.classList.remove('btn--primary');
         startShareBtn.classList.add('btn--secondary');
+        updateModeIndicator('sharing');
         
-        // Set up peer connection for sharer
-        await setupSharerConnection();
+        // Handle stream end
+        localStream.getVideoTracks()[0].addEventListener('ended', () => {
+            console.log('Screen share ended by user');
+            stopAllConnections();
+        });
         
-        console.log('Screen sharing started');
+        if (audioTracks.length > 0) {
+            audioTracks[0].addEventListener('ended', () => {
+                console.log('Screen audio ended');
+            });
+        }
         
     } catch (error) {
         console.error('Error starting screen share:', error);
-        updateStatus(`Error starting screen share: ${error.message}`, 'error');
+        updateStatus(`Failed to start screen share: ${error.message}`, 'error');
         stopAllConnections();
     } finally {
         disableButtons(false);
     }
 }
 
-// Start video call (sharer role)
+// Start video call
 async function startVideoCall() {
+    const sessionId = sessionIdInput.value.trim();
+    if (!sessionId) {
+        alert('Please enter or generate a session ID');
+        return;
+    }
+    
+    if (isSharing || isVideoCall || isAudioCall) {
+        stopAllConnections();
+        return;
+    }
+    
     try {
         updateStatus('Requesting camera and microphone...', 'waiting');
         disableButtons(true);
         
-        // Check browser compatibility
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error('Video calls are not supported in this browser.');
-        }
-        
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            throw new Error('Video calls require HTTPS. Please access this site via HTTPS.');
-        }
-        
-        // Get camera and microphone stream
+        // Get user media for video call (bidirectional)
         localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true
+            video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                facingMode: 'user'
+            },
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
         });
         
-        // Display local video
+        console.log('Video call stream obtained:', localStream);
+        console.log('Video call stream tracks:', localStream.getTracks());
+        
         localVideo.srcObject = localStream;
         
-        // Get session ID
-        const sessionId = sessionIdInput.value.trim();
-        if (!sessionId) {
-            throw new Error('Please enter a session ID');
-        }
-        
-        currentSessionId = sessionId;
-        
-        // Create session in Firestore
+        // Create session and setup connection
         const sessionCreated = await createSession(sessionId, 'video-call');
-        if (!sessionCreated) {
-            throw new Error('Failed to create session');
+        if (sessionCreated) {
+            await setupSharerConnection();
         }
         
-        updateStatus(`Video call started with ID: ${sessionId}. Waiting for peer...`, 'waiting');
-        updateModeIndicator('Video Call');
         isVideoCall = true;
-        
-        startVideoCallBtn.textContent = 'Stop Video Call';
+        startVideoCallBtn.textContent = 'End Video Call';
         startVideoCallBtn.classList.remove('btn--primary');
         startVideoCallBtn.classList.add('btn--secondary');
+        updateModeIndicator('video-call');
         
-        // Set up peer connection for sharer
-        await setupSharerConnection();
+        updateStatus('Video call started. Waiting for peer...', 'waiting');
         
-        console.log('Video call started');
+        // Handle stream end
+        localStream.getVideoTracks()[0].addEventListener('ended', () => {
+            console.log('Video track ended');
+            stopAllConnections();
+        });
+        
+        localStream.getAudioTracks()[0].addEventListener('ended', () => {
+            console.log('Audio track ended');
+            stopAllConnections();
+        });
         
     } catch (error) {
         console.error('Error starting video call:', error);
-        updateStatus(`Error starting video call: ${error.message}`, 'error');
+        updateStatus(`Failed to start video call: ${error.message}`, 'error');
         stopAllConnections();
     } finally {
         disableButtons(false);
     }
 }
 
-// Start audio call (sharer role)
+// Start audio call
 async function startAudioCall() {
+    const sessionId = sessionIdInput.value.trim();
+    if (!sessionId) {
+        alert('Please enter or generate a session ID');
+        return;
+    }
+    
+    if (isSharing || isVideoCall || isAudioCall) {
+        stopAllConnections();
+        return;
+    }
+    
     try {
         updateStatus('Requesting microphone...', 'waiting');
         disableButtons(true);
         
-        // Check browser compatibility
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error('Audio calls are not supported in this browser.');
-        }
-        
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            throw new Error('Audio calls require HTTPS. Please access this site via HTTPS.');
-        }
-        
-        // Get microphone stream only
+        // Get user media for audio call (bidirectional)
         localStream = await navigator.mediaDevices.getUserMedia({
             video: false,
-            audio: true
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 44100
+            }
         });
         
-        // Display local video (will be blank for audio-only)
+        console.log('Audio call stream obtained:', localStream);
+        console.log('Audio call stream tracks:', localStream.getTracks());
+        
         localVideo.srcObject = localStream;
         
-        // Get session ID
-        const sessionId = sessionIdInput.value.trim();
-        if (!sessionId) {
-            throw new Error('Please enter a session ID');
-        }
-        
-        currentSessionId = sessionId;
-        
-        // Create session in Firestore
+        // Create session and setup connection
         const sessionCreated = await createSession(sessionId, 'audio-call');
-        if (!sessionCreated) {
-            throw new Error('Failed to create session');
+        if (sessionCreated) {
+            await setupSharerConnection();
         }
         
-        updateStatus(`Audio call started with ID: ${sessionId}. Waiting for peer...`, 'waiting');
-        updateModeIndicator('Audio Call');
         isAudioCall = true;
-        
-        startAudioCallBtn.textContent = 'Stop Audio Call';
+        startAudioCallBtn.textContent = 'End Audio Call';
         startAudioCallBtn.classList.remove('btn--primary');
         startAudioCallBtn.classList.add('btn--secondary');
+        updateModeIndicator('audio-call');
         
-        // Set up peer connection for sharer
-        await setupSharerConnection();
+        updateStatus('Audio call started. Waiting for peer...', 'waiting');
         
-        console.log('Audio call started');
+        // Handle stream end
+        localStream.getAudioTracks()[0].addEventListener('ended', () => {
+            console.log('Audio track ended');
+            stopAllConnections();
+        });
         
     } catch (error) {
         console.error('Error starting audio call:', error);
-        updateStatus(`Error starting audio call: ${error.message}`, 'error');
+        updateStatus(`Failed to start audio call: ${error.message}`, 'error');
         stopAllConnections();
     } finally {
         disableButtons(false);
@@ -531,36 +564,38 @@ async function setupSharerConnection() {
 
 // Start viewing screen
 async function startViewing() {
+    const sessionId = sessionIdInput.value.trim();
+    if (!sessionId) {
+        alert('Please enter a session ID');
+        return;
+    }
+    
+    if (isSharing || isVideoCall || isAudioCall) {
+        stopAllConnections();
+        return;
+    }
+    
     try {
-        updateStatus('Connecting to screen share...', 'waiting');
+        updateStatus('Joining screen share...', 'waiting');
         disableButtons(true);
         
-        // Get session ID
-        const sessionId = sessionIdInput.value.trim();
-        if (!sessionId) {
-            throw new Error('Please enter a session ID');
+        // Join session and setup connection (no local media needed for screen viewing)
+        const sessionJoined = await joinSession(sessionId);
+        if (sessionJoined) {
+            await setupViewerConnection();
         }
         
-        currentSessionId = sessionId;
+        isViewing = true;
+        viewScreenBtn.textContent = 'Leave Viewing';
+        viewScreenBtn.classList.remove('btn--outline');
+        viewScreenBtn.classList.add('btn--secondary');
+        updateModeIndicator('viewing');
         
-        // Join session in Firestore
-        const sessionMode = await joinSession(sessionId);
-        if (!sessionMode) {
-            throw new Error('Failed to join session');
-        }
-        
-        if (sessionMode !== 'screen-share') {
-            throw new Error('This session is not a screen share session');
-        }
-        
-        updateStatus('Connecting to screen sharer...', 'waiting');
-        
-        // Set up peer connection for viewer
-        await setupViewerConnection();
+        updateStatus('Joined screen share. Connecting...', 'waiting');
         
     } catch (error) {
-        console.error('Error viewing screen:', error);
-        updateStatus(`Error viewing screen: ${error.message}`, 'error');
+        console.error('Error joining screen share:', error);
+        updateStatus(`Failed to join screen share: ${error.message}`, 'error');
         stopAllConnections();
     } finally {
         disableButtons(false);
@@ -569,36 +604,68 @@ async function startViewing() {
 
 // Join video call
 async function joinVideoCall() {
+    const sessionId = sessionIdInput.value.trim();
+    if (!sessionId) {
+        alert('Please enter a session ID');
+        return;
+    }
+    
+    if (isSharing || isVideoCall || isAudioCall) {
+        stopAllConnections();
+        return;
+    }
+    
     try {
         updateStatus('Joining video call...', 'waiting');
         disableButtons(true);
         
-        // Get session ID
-        const sessionId = sessionIdInput.value.trim();
-        if (!sessionId) {
-            throw new Error('Please enter a session ID');
+        // Get local media for bidirectional video call
+        localStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                facingMode: 'user'
+            },
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+        
+        console.log('Local video call stream obtained:', localStream);
+        console.log('Local video call stream tracks:', localStream.getTracks());
+        
+        localVideo.srcObject = localStream;
+        
+        // Join session and setup connection
+        const sessionJoined = await joinSession(sessionId);
+        if (sessionJoined) {
+            await setupViewerConnection();
         }
         
-        currentSessionId = sessionId;
+        isVideoCall = true;
+        joinVideoCallBtn.textContent = 'Leave Video Call';
+        joinVideoCallBtn.classList.remove('btn--outline');
+        joinVideoCallBtn.classList.add('btn--secondary');
+        updateModeIndicator('video-call');
         
-        // Join session in Firestore
-        const sessionMode = await joinSession(sessionId);
-        if (!sessionMode) {
-            throw new Error('Failed to join session');
-        }
+        updateStatus('Joined video call. Connecting...', 'waiting');
         
-        if (sessionMode !== 'video-call') {
-            throw new Error('This session is not a video call session');
-        }
+        // Handle stream end
+        localStream.getVideoTracks()[0].addEventListener('ended', () => {
+            console.log('Local video track ended');
+            stopAllConnections();
+        });
         
-        updateStatus('Joining video call...', 'waiting');
-        
-        // Set up peer connection for viewer
-        await setupViewerConnection();
+        localStream.getAudioTracks()[0].addEventListener('ended', () => {
+            console.log('Local audio track ended');
+            stopAllConnections();
+        });
         
     } catch (error) {
         console.error('Error joining video call:', error);
-        updateStatus(`Error joining video call: ${error.message}`, 'error');
+        updateStatus(`Failed to join video call: ${error.message}`, 'error');
         stopAllConnections();
     } finally {
         disableButtons(false);
@@ -607,50 +674,76 @@ async function joinVideoCall() {
 
 // Join audio call
 async function joinAudioCall() {
+    const sessionId = sessionIdInput.value.trim();
+    if (!sessionId) {
+        alert('Please enter a session ID');
+        return;
+    }
+    
+    if (isSharing || isVideoCall || isAudioCall) {
+        stopAllConnections();
+        return;
+    }
+    
     try {
         updateStatus('Joining audio call...', 'waiting');
         disableButtons(true);
         
-        // Get session ID
-        const sessionId = sessionIdInput.value.trim();
-        if (!sessionId) {
-            throw new Error('Please enter a session ID');
+        // Get local media for bidirectional audio call
+        localStream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 44100
+            }
+        });
+        
+        console.log('Local audio call stream obtained:', localStream);
+        console.log('Local audio call stream tracks:', localStream.getTracks());
+        
+        localVideo.srcObject = localStream;
+        
+        // Join session and setup connection
+        const sessionJoined = await joinSession(sessionId);
+        if (sessionJoined) {
+            await setupViewerConnection();
         }
         
-        currentSessionId = sessionId;
+        isAudioCall = true;
+        joinAudioCallBtn.textContent = 'Leave Audio Call';
+        joinAudioCallBtn.classList.remove('btn--outline');
+        joinAudioCallBtn.classList.add('btn--secondary');
+        updateModeIndicator('audio-call');
         
-        // Join session in Firestore
-        const sessionMode = await joinSession(sessionId);
-        if (!sessionMode) {
-            throw new Error('Failed to join session');
-        }
+        updateStatus('Joined audio call. Connecting...', 'waiting');
         
-        if (sessionMode !== 'audio-call') {
-            throw new Error('This session is not an audio call session');
-        }
-        
-        updateStatus('Joining audio call...', 'waiting');
-        
-        // Set up peer connection for viewer
-        await setupViewerConnection();
+        // Handle stream end
+        localStream.getAudioTracks()[0].addEventListener('ended', () => {
+            console.log('Local audio track ended');
+            stopAllConnections();
+        });
         
     } catch (error) {
         console.error('Error joining audio call:', error);
-        updateStatus(`Error joining audio call: ${error.message}`, 'error');
+        updateStatus(`Failed to join audio call: ${error.message}`, 'error');
         stopAllConnections();
     } finally {
         disableButtons(false);
     }
 }
 
-// Set up peer connection for viewer
+// Set up viewer connection (bidirectional for calls)
 async function setupViewerConnection() {
     try {
-        // Create peer connection
+        console.log('Setting up viewer connection');
+        
+        // Create peer connection for viewer
         peerConnection = new RTCPeerConnection(iceServers);
         console.log('Created peer connection for viewer');
         
-        // Set up track handling
+        // Set up track handling for incoming stream
         peerConnection.ontrack = function(event) {
             console.log('Received remote stream:', event.streams);
             console.log('Stream tracks:', event.streams[0]?.getTracks());
@@ -686,7 +779,7 @@ async function setupViewerConnection() {
                 
                 // Update button states based on mode
                 if (isSharing) {
-                    viewScreenBtn.textContent = 'Stop Viewing';
+                    viewScreenBtn.textContent = 'Leave Viewing';
                     viewScreenBtn.classList.remove('btn--outline');
                     viewScreenBtn.classList.add('btn--secondary');
                 } else if (isVideoCall) {
@@ -734,83 +827,90 @@ async function setupViewerConnection() {
             }
         };
         
+        // For bidirectional calls, also send local stream back
+        if (isVideoCall || isAudioCall) {
+            console.log('Setting up bidirectional call - adding local stream');
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    console.log('Adding local track to peer connection:', track.kind);
+                    peerConnection.addTrack(track, localStream);
+                });
+            }
+        }
+        
         // Set up ICE candidate handling
-        peerConnection.onicecandidate = async function(event) {
+        peerConnection.onicecandidate = function(event) {
             if (event.candidate) {
                 console.log('Sending ICE candidate from viewer:', event.candidate);
-                try {
-                    await answerCandidates.add(event.candidate.toJSON());
-                } catch (error) {
-                    console.error('Error adding answer candidate:', error);
-                }
-            } else {
-                console.log('ICE candidate gathering complete for viewer');
+                answerCandidates.add(event.candidate.toJSON());
             }
         };
         
-        // Set up connection state monitoring
+        // Monitor connection state
         peerConnection.onconnectionstatechange = function() {
             console.log('Viewer connection state:', peerConnection.connectionState);
             if (peerConnection.connectionState === 'connected') {
                 updateStatus('WebRTC connection established!', 'connected');
-                updateModeIndicator('Connected');
             } else if (peerConnection.connectionState === 'failed') {
-                updateStatus('WebRTC connection failed', 'error');
-            } else if (peerConnection.connectionState === 'disconnected') {
-                updateStatus('WebRTC connection disconnected', 'error');
+                updateStatus('Connection failed', 'error');
             }
         };
         
+        // Monitor ICE connection state
         peerConnection.oniceconnectionstatechange = function() {
             console.log('Viewer ICE connection state:', peerConnection.iceConnectionState);
+            if (peerConnection.iceConnectionState === 'connected') {
+                console.log('ICE candidate gathering complete for viewer');
+            }
         };
         
         // Get the offer from Firestore
         const sessionSnapshot = await sessionDoc.get();
-        const sessionData = sessionSnapshot.data();
-        
-        if (!sessionData || !sessionData.offer) {
-            throw new Error('No offer found in session');
+        if (sessionSnapshot.exists) {
+            const sessionData = sessionSnapshot.data();
+            console.log('Retrieved offer from Firestore');
+            
+            if (sessionData.offer) {
+                const offerDesc = new RTCSessionDescription(sessionData.offer);
+                console.log('Set remote offer description');
+                await peerConnection.setRemoteDescription(offerDesc);
+                
+                // Create and set local answer
+                const answer = await peerConnection.createAnswer();
+                console.log('Created and set local answer');
+                await peerConnection.setLocalDescription(answer);
+                
+                // Save answer to Firestore
+                await sessionDoc.update({
+                    answer: {
+                        type: answer.type,
+                        sdp: answer.sdp
+                    },
+                    lastUpdated: new Date()
+                });
+                console.log('Saved answer to Firestore');
+                
+                // Listen for offer ICE candidates
+                offerCandidates.onSnapshot(snapshot => {
+                    snapshot.docChanges().forEach(change => {
+                        if (change.type === 'added') {
+                            const candidate = new RTCIceCandidate(change.doc.data());
+                            peerConnection.addIceCandidate(candidate);
+                            console.log('Added offer ICE candidate');
+                        }
+                    });
+                });
+                
+            } else {
+                updateStatus('No offer found in session', 'error');
+            }
+        } else {
+            updateStatus('Session not found', 'error');
         }
-        
-        console.log('Retrieved offer from Firestore');
-        
-        // Set remote description (offer)
-        const offerDesc = new RTCSessionDescription(sessionData.offer);
-        await peerConnection.setRemoteDescription(offerDesc);
-        console.log('Set remote offer description');
-        
-        // Create and set local description (answer)
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        console.log('Created and set local answer');
-        
-        // Save answer to Firestore
-        await sessionDoc.set({ 
-            answer: { type: answer.type, sdp: answer.sdp },
-            viewerActive: true,
-            lastUpdated: new Date()
-        }, { merge: true });
-        console.log('Saved answer to Firestore');
-        
-        // Listen for offer ICE candidates
-        unsubscribeOfferCandidates = offerCandidates.onSnapshot(async (snapshot) => {
-            snapshot.docChanges().forEach(async (change) => {
-                if (change.type === 'added') {
-                    try {
-                        const candidate = new RTCIceCandidate(change.doc.data());
-                        await peerConnection.addIceCandidate(candidate);
-                        console.log('Added offer ICE candidate');
-                    } catch (error) {
-                        console.error('Error adding offer ICE candidate:', error);
-                    }
-                }
-            });
-        });
         
     } catch (error) {
         console.error('Error setting up viewer connection:', error);
-        updateStatus(`Error setting up connection: ${error.message}`, 'error');
+        updateStatus(`Connection error: ${error.message}`, 'error');
     }
 }
 
