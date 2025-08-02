@@ -1,0 +1,15 @@
+runtime: nodejs18
+service: webrtc-app
+
+handlers:
+  - url: /static
+    static_dir: .
+    secure: always
+    
+  - url: /.*
+    script: auto
+    secure: always
+
+env_variables:
+  NODE_ENV: production
+  PORT: 8080 
