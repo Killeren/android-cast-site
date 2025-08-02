@@ -49,6 +49,7 @@ const currentModeSpan = document.getElementById('currentMode');
 const iceServers = {
     iceServers: [
         // Primary STUN servers
+        { urls: [ "stun:stun.l.google.com:19302", "stun:global.stun.twilio.com:3478" ] },
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
@@ -716,7 +717,7 @@ async function startViewing() {
         // Join session and setup connection (no local media needed for screen viewing)
         const sessionJoined = await joinSession(sessionId);
         if (sessionJoined) {
-            await setupViewerConnection();
+            await setupViewerConnection(sessionJoined);
         }
         
         isViewing = true;
@@ -805,7 +806,7 @@ async function joinVideoCall() {
         // Join session and setup connection
         const sessionJoined = await joinSession(sessionId);
         if (sessionJoined) {
-            await setupViewerConnection();
+            await setupViewerConnection(sessionJoined);
         }
         
         isVideoCall = true;
@@ -902,7 +903,7 @@ async function joinAudioCall() {
         // Join session and setup connection
         const sessionJoined = await joinSession(sessionId);
         if (sessionJoined) {
-            await setupViewerConnection();
+            await setupViewerConnection(sessionJoined);
         }
         
         isAudioCall = true;
@@ -929,34 +930,24 @@ async function joinAudioCall() {
 }
 
 // Set up viewer connection (bidirectional for calls)
-async function setupViewerConnection() {
+async function setupViewerConnection(mode) {
     try {
-        console.log('Setting up viewer connection');
-        
+        console.log('Setting up viewer connection. Mode:', mode);
+
         // Create peer connection for viewer
         peerConnection = new RTCPeerConnection(iceServers);
         console.log('Created peer connection for viewer');
-        
-        // Set up track handling for incoming stream
+
+        // Set up track handling for incoming stream (i.e., what we receive from sharer)
         peerConnection.ontrack = function(event) {
             console.log('Received remote stream:', event.streams);
-            console.log('Stream tracks:', event.streams[0]?.getTracks());
-            console.log('Track event details:', event);
-            
             if (event.streams && event.streams[0]) {
-                const remoteStream = event.streams[0];
+                const remoteStreamObj = event.streams[0];
                 console.log('Setting remote video srcObject');
-                console.log('Remote stream tracks:', remoteStream.getTracks());
-                
-                // Debug video element before setting stream
                 debugVideoElement(remoteVideo, 'Before Setting Stream');
-                
-                // Set the remote video source
-                remoteVideo.srcObject = remoteStream;
-                
-                // Store the remote stream
-                window.remoteStream = remoteStream;
-                
+                remoteVideo.srcObject = remoteStreamObj;
+                window.remoteStream = remoteStreamObj;
+
                 // Ensure video element is properly configured
                 remoteVideo.muted = false;
                 remoteVideo.autoplay = true;
@@ -966,92 +957,41 @@ async function setupViewerConnection() {
                 remoteVideo.style.height = 'auto';
                 remoteVideo.style.visibility = 'visible';
                 remoteVideo.style.opacity = '1';
-                
                 isViewing = true;
                 updateStatus('Connected! Receiving stream...', 'connected');
                 updateModeIndicator('Connected');
-                
-                // Update button states based on mode
-                if (isSharing) {
-                    viewScreenBtn.textContent = 'Leave Viewing';
-                    viewScreenBtn.classList.remove('btn--outline');
-                    viewScreenBtn.classList.add('btn--secondary');
-                } else if (isVideoCall) {
-                    joinVideoCallBtn.textContent = 'Leave Video Call';
-                    joinVideoCallBtn.classList.remove('btn--outline');
-                    joinVideoCallBtn.classList.add('btn--secondary');
-                } else if (isAudioCall) {
-                    joinAudioCallBtn.textContent = 'Leave Audio Call';
-                    joinAudioCallBtn.classList.remove('btn--outline');
-                    joinAudioCallBtn.classList.add('btn--secondary');
-                }
-                
-                // Add event listeners to video element
+
                 remoteVideo.onloadedmetadata = function() {
                     console.log('Remote video metadata loaded');
-                    console.log('Video dimensions:', remoteVideo.videoWidth, 'x', remoteVideo.videoHeight);
                     debugVideoElement(remoteVideo, 'After Metadata Loaded');
-                    
                     remoteVideo.play().then(() => {
-                        console.log('Remote video started playing');
-                        console.log('Video element srcObject:', remoteVideo.srcObject);
-                        console.log('Video element currentSrc:', remoteVideo.currentSrc);
                         debugVideoElement(remoteVideo, 'After Play Started');
                     }).catch(error => {
                         console.error('Error playing remote video:', error);
                     });
                 };
-                
                 remoteVideo.onplay = function() {
-                    console.log('Remote video is playing');
-                    console.log('Video element readyState:', remoteVideo.readyState);
                     debugVideoElement(remoteVideo, 'On Play Event');
                 };
-                
                 remoteVideo.onerror = function(error) {
                     console.error('Remote video error:', error);
                 };
-                
-                // Debug video element after setup
                 debugVideoElement(remoteVideo, 'After Setup');
-                
                 console.log('Remote video element updated');
             } else {
                 console.error('No streams in track event');
             }
         };
-        
-        // For bidirectional calls, also send local stream back
-        if (isVideoCall || isAudioCall) {
-            console.log('Setting up bidirectional call - adding local stream');
-            if (localStream) {
-                localStream.getTracks().forEach(track => {
-                    console.log('Adding local track to peer connection:', track.kind, track.id);
-                    peerConnection.addTrack(track, localStream);
-                });
-                console.log('All local tracks added to peer connection for bidirectional call');
-                
-                // Debug: Check what tracks are in the peer connection
-                setTimeout(() => {
-                    console.log('Peer connection senders:', peerConnection.getSenders());
-                    console.log('Peer connection transceivers:', peerConnection.getTransceivers());
-                }, 1000);
-            } else {
-                console.error('No local stream available for bidirectional call');
-            }
-        } else {
-            console.log('Not a bidirectional call (screen sharing), skipping local stream addition');
-        }
-        
-        // Set up ICE candidate handling
+
+        // ICE candidate sending from viewer side
         peerConnection.onicecandidate = function(event) {
             if (event.candidate) {
                 console.log('Sending ICE candidate from viewer:', event.candidate);
                 answerCandidates.add(event.candidate.toJSON());
             }
         };
-        
-        // Monitor connection state
+
+        // Monitor connection/ICE state
         peerConnection.onconnectionstatechange = function() {
             console.log('Viewer connection state:', peerConnection.connectionState);
             if (peerConnection.connectionState === 'connected') {
@@ -1060,39 +1000,56 @@ async function setupViewerConnection() {
                 updateStatus('Connection failed', 'error');
             }
         };
-        
-        // Monitor ICE connection state
         peerConnection.oniceconnectionstatechange = function() {
             console.log('Viewer ICE connection state:', peerConnection.iceConnectionState);
             if (peerConnection.iceConnectionState === 'connected') {
                 console.log('ICE candidate gathering complete for viewer');
             }
         };
-        
-        // Get the offer from Firestore
+
+        // ===== FIRESTORE SIGNALING LOGIC =====
         const sessionSnapshot = await sessionDoc.get();
         if (sessionSnapshot.exists) {
             const sessionData = sessionSnapshot.data();
             console.log('Retrieved offer from Firestore');
-            
             if (sessionData.offer) {
                 const offerDesc = new RTCSessionDescription(sessionData.offer);
                 console.log('Set remote offer description');
                 await peerConnection.setRemoteDescription(offerDesc);
-                
-                // Create and set local answer
+
+                // *** KEY PART FOR BIDIRECTIONAL: Add local tracks before createAnswer! ***
+                if (mode === 'video-call' || mode === 'audio-call') {
+                    console.log('Setting up bidirectional call - adding local stream. Mode=', mode);
+                    if (localStream) {
+                        localStream.getTracks().forEach(track => {
+                            console.log('Adding local track to peer connection:', track.kind, track.id);
+                            peerConnection.addTrack(track, localStream);
+                        });
+                        console.log('All local tracks added to peer connection for bidirectional call');
+                        setTimeout(() => {
+                            console.log('Peer connection senders:', peerConnection.getSenders());
+                            console.log('Peer connection transceivers:', peerConnection.getTransceivers());
+                        }, 1000);
+                    } else {
+                        console.error('No local stream available for bidirectional call');
+                    }
+                } else {
+                    console.log('Not a bidirectional call (screen sharing), skipping local stream addition. Mode=', mode);
+                }
+
+                // --- Create and set local answer SPD ---
                 const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
                 console.log('Created and set local answer');
                 console.log('Answer SDP:', answer.sdp.substring(0, 200) + '...');
-                await peerConnection.setLocalDescription(answer);
-                
-                // Debug: Check if local tracks are included in the answer
+
+                // Print senders debug after adding tracks
                 console.log('Local tracks in peer connection after answer creation:');
                 peerConnection.getSenders().forEach(sender => {
                     console.log('Sender track:', sender.track?.kind, sender.track?.id);
                 });
-                
-                // Save answer to Firestore
+
+                // --- Save answer to Firestore ---
                 await sessionDoc.update({
                     answer: {
                         type: answer.type,
@@ -1102,7 +1059,7 @@ async function setupViewerConnection() {
                     lastUpdated: new Date()
                 });
                 console.log('Saved answer to Firestore');
-                
+
                 // Listen for offer ICE candidates
                 offerCandidates.onSnapshot(snapshot => {
                     snapshot.docChanges().forEach(change => {
@@ -1113,19 +1070,18 @@ async function setupViewerConnection() {
                         }
                     });
                 });
-                
             } else {
                 updateStatus('No offer found in session', 'error');
             }
         } else {
             updateStatus('Session not found', 'error');
         }
-        
     } catch (error) {
         console.error('Error setting up viewer connection:', error);
         updateStatus(`Connection error: ${error.message}`, 'error');
     }
 }
+
 
 // Stop all connections
 function stopAllConnections() {
