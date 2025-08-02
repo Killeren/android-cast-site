@@ -771,6 +771,19 @@ body {
     margin-bottom: var(--space-24);
 }
 
+/* Feature sections */
+.feature-section {
+    margin-bottom: var(--space-24);
+}
+
+.feature-section h3 {
+    text-align: center;
+    margin-bottom: var(--space-12);
+    color: var(--color-text);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-medium);
+}
+
 /* Button group */
 .button-group {
     display: flex;
@@ -788,6 +801,49 @@ body {
     .button-group .btn {
         width: 100%;
     }
+}
+
+/* Button icons */
+.btn-icon {
+    margin-right: var(--space-8);
+    font-size: var(--font-size-lg);
+}
+
+/* Mode indicator */
+.mode-indicator {
+    text-align: center;
+    margin-top: var(--space-16);
+}
+
+.mode-badge {
+    display: inline-block;
+    padding: var(--space-6) var(--space-12);
+    background-color: var(--color-bg-1);
+    color: var(--color-text-secondary);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    transition: all var(--duration-normal) var(--ease-standard);
+}
+
+.mode-badge.active {
+    background-color: var(--color-bg-3);
+    color: var(--color-success);
+}
+
+.mode-badge.sharing {
+    background-color: var(--color-bg-2);
+    color: var(--color-warning);
+}
+
+.mode-badge.video-call {
+    background-color: var(--color-bg-4);
+    color: var(--color-error);
+}
+
+.mode-badge.audio-call {
+    background-color: var(--color-bg-5);
+    color: var(--color-primary);
 }
 
 /* Status message */

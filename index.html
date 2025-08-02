@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebRTC Screen Share</title>
+    <title>WebRTC Screen Share & Calls</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,8 +11,8 @@
         <div class="main-content">
             <div class="card">
                 <div class="card__body">
-                    <h1>WebRTC Screen Share</h1>
-                    <p>Share your screen with another device using WebRTC and Firebase</p>
+                    <h1>WebRTC Screen Share & Calls</h1>
+                    <p>Share your screen, make video calls, or audio calls with another device using WebRTC and Firebase</p>
                     
                     <div class="form-group">
                         <label for="sessionId" class="form-label">Session ID</label>
@@ -27,11 +27,51 @@
                     
                     <div class="button-group">
                         <button id="generateId" class="btn btn--secondary">Generate ID</button>
-                        <button id="startShare" class="btn btn--primary">Share Screen</button>
-                        <button id="viewScreen" class="btn btn--outline">View Screen</button>
+                    </div>
+                    
+                    <div class="feature-section">
+                        <h3>Share Features</h3>
+                        <div class="button-group">
+                            <button id="startShare" class="btn btn--primary">
+                                <span class="btn-icon">📺</span>
+                                Share Screen
+                            </button>
+                            <button id="viewScreen" class="btn btn--outline">
+                                <span class="btn-icon">👁️</span>
+                                View Screen
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="feature-section">
+                        <h3>Call Features</h3>
+                        <div class="button-group">
+                            <button id="startVideoCall" class="btn btn--primary">
+                                <span class="btn-icon">📹</span>
+                                Video Call
+                            </button>
+                            <button id="joinVideoCall" class="btn btn--outline">
+                                <span class="btn-icon">📹</span>
+                                Join Video Call
+                            </button>
+                        </div>
+                        <div class="button-group">
+                            <button id="startAudioCall" class="btn btn--primary">
+                                <span class="btn-icon">🎤</span>
+                                Audio Call
+                            </button>
+                            <button id="joinAudioCall" class="btn btn--outline">
+                                <span class="btn-icon">🎤</span>
+                                Join Audio Call
+                            </button>
+                        </div>
                     </div>
                     
                     <div id="status" class="status-message">Ready to connect</div>
+                    
+                    <div class="mode-indicator">
+                        <span id="currentMode" class="mode-badge">No active mode</span>
+                    </div>
                 </div>
             </div>
             

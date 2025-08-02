@@ -21,6 +21,8 @@ let localStream = null;
 let remoteStream = null;
 let isSharing = false;
 let isViewing = false;
+let isVideoCall = false;
+let isAudioCall = false;
 let isFallbackMode = false;
 let sessionDoc = null;
 let offerCandidates = null;
@@ -34,9 +36,14 @@ const sessionIdInput = document.getElementById('sessionId');
 const generateIdBtn = document.getElementById('generateId');
 const startShareBtn = document.getElementById('startShare');
 const viewScreenBtn = document.getElementById('viewScreen');
+const startVideoCallBtn = document.getElementById('startVideoCall');
+const joinVideoCallBtn = document.getElementById('joinVideoCall');
+const startAudioCallBtn = document.getElementById('startAudioCall');
+const joinAudioCallBtn = document.getElementById('joinAudioCall');
 const statusDiv = document.getElementById('status');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
+const currentModeSpan = document.getElementById('currentMode');
 
 // ICE servers configuration with multiple fallback options
 const iceServers = {
@@ -115,9 +122,9 @@ function initializeFirebase() {
 }
 
 // Create a new session in Firestore
-async function createSession(sessionId) {
+async function createSession(sessionId, mode = 'screen-share') {
     try {
-        console.log('Creating session in Firestore:', sessionId);
+        console.log('Creating session in Firestore:', sessionId, 'mode:', mode);
         
         // Create session document
         sessionDoc = doc(db, 'castSessions', sessionId);
@@ -129,6 +136,7 @@ async function createSession(sessionId) {
         // Initialize session document
         await setDoc(sessionDoc, {
             sessionId: sessionId,
+            mode: mode,
             createdAt: new Date(),
             status: 'active'
         });
@@ -157,12 +165,15 @@ async function joinSession(sessionId) {
             throw new Error('Session not found');
         }
         
+        const sessionData = sessionSnapshot.data();
+        console.log('Session mode:', sessionData.mode);
+        
         console.log('Session joined successfully');
-        return true;
+        return sessionData.mode;
     } catch (error) {
         console.error('Error joining session:', error);
         updateStatus(`Error joining session: ${error.message}`, 'error');
-        return false;
+        return null;
     }
 }
 
@@ -182,10 +193,35 @@ function cleanupSessionListeners() {
     }
 }
 
+// Update mode indicator
+function updateModeIndicator(mode) {
+    currentModeSpan.textContent = mode;
+    currentModeSpan.className = 'mode-badge';
+    
+    if (mode === 'Screen Sharing') {
+        currentModeSpan.classList.add('sharing');
+    } else if (mode === 'Video Call') {
+        currentModeSpan.classList.add('video-call');
+    } else if (mode === 'Audio Call') {
+        currentModeSpan.classList.add('audio-call');
+    } else if (mode === 'Connected') {
+        currentModeSpan.classList.add('active');
+    }
+}
+
+// Disable/enable buttons
+function disableButtons(disabled) {
+    const buttons = [startShareBtn, viewScreenBtn, startVideoCallBtn, joinVideoCallBtn, startAudioCallBtn, joinAudioCallBtn];
+    buttons.forEach(btn => {
+        btn.disabled = disabled;
+    });
+}
+
 // Start screen sharing (sharer role)
 async function startScreenShare() {
     try {
         updateStatus('Requesting screen share permission...', 'waiting');
+        disableButtons(true);
         
         // Check browser compatibility
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
@@ -216,12 +252,13 @@ async function startScreenShare() {
         currentSessionId = sessionId;
         
         // Create session in Firestore
-        const sessionCreated = await createSession(sessionId);
+        const sessionCreated = await createSession(sessionId, 'screen-share');
         if (!sessionCreated) {
             throw new Error('Failed to create session');
         }
         
         updateStatus(`Sharing screen with ID: ${sessionId}. Waiting for viewer...`, 'waiting');
+        updateModeIndicator('Screen Sharing');
         isSharing = true;
         
         startShareBtn.textContent = 'Stop Sharing';
@@ -236,7 +273,129 @@ async function startScreenShare() {
     } catch (error) {
         console.error('Error starting screen share:', error);
         updateStatus(`Error starting screen share: ${error.message}`, 'error');
-        stopScreenShare();
+        stopAllConnections();
+    } finally {
+        disableButtons(false);
+    }
+}
+
+// Start video call (sharer role)
+async function startVideoCall() {
+    try {
+        updateStatus('Requesting camera and microphone...', 'waiting');
+        disableButtons(true);
+        
+        // Check browser compatibility
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('Video calls are not supported in this browser.');
+        }
+        
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+            throw new Error('Video calls require HTTPS. Please access this site via HTTPS.');
+        }
+        
+        // Get camera and microphone stream
+        localStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true
+        });
+        
+        // Display local video
+        localVideo.srcObject = localStream;
+        
+        // Get session ID
+        const sessionId = sessionIdInput.value.trim();
+        if (!sessionId) {
+            throw new Error('Please enter a session ID');
+        }
+        
+        currentSessionId = sessionId;
+        
+        // Create session in Firestore
+        const sessionCreated = await createSession(sessionId, 'video-call');
+        if (!sessionCreated) {
+            throw new Error('Failed to create session');
+        }
+        
+        updateStatus(`Video call started with ID: ${sessionId}. Waiting for peer...`, 'waiting');
+        updateModeIndicator('Video Call');
+        isVideoCall = true;
+        
+        startVideoCallBtn.textContent = 'Stop Video Call';
+        startVideoCallBtn.classList.remove('btn--primary');
+        startVideoCallBtn.classList.add('btn--secondary');
+        
+        // Set up peer connection for sharer
+        await setupSharerConnection();
+        
+        console.log('Video call started');
+        
+    } catch (error) {
+        console.error('Error starting video call:', error);
+        updateStatus(`Error starting video call: ${error.message}`, 'error');
+        stopAllConnections();
+    } finally {
+        disableButtons(false);
+    }
+}
+
+// Start audio call (sharer role)
+async function startAudioCall() {
+    try {
+        updateStatus('Requesting microphone...', 'waiting');
+        disableButtons(true);
+        
+        // Check browser compatibility
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('Audio calls are not supported in this browser.');
+        }
+        
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+            throw new Error('Audio calls require HTTPS. Please access this site via HTTPS.');
+        }
+        
+        // Get microphone stream only
+        localStream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: true
+        });
+        
+        // Display local video (will be blank for audio-only)
+        localVideo.srcObject = localStream;
+        
+        // Get session ID
+        const sessionId = sessionIdInput.value.trim();
+        if (!sessionId) {
+            throw new Error('Please enter a session ID');
+        }
+        
+        currentSessionId = sessionId;
+        
+        // Create session in Firestore
+        const sessionCreated = await createSession(sessionId, 'audio-call');
+        if (!sessionCreated) {
+            throw new Error('Failed to create session');
+        }
+        
+        updateStatus(`Audio call started with ID: ${sessionId}. Waiting for peer...`, 'waiting');
+        updateModeIndicator('Audio Call');
+        isAudioCall = true;
+        
+        startAudioCallBtn.textContent = 'Stop Audio Call';
+        startAudioCallBtn.classList.remove('btn--primary');
+        startAudioCallBtn.classList.add('btn--secondary');
+        
+        // Set up peer connection for sharer
+        await setupSharerConnection();
+        
+        console.log('Audio call started');
+        
+    } catch (error) {
+        console.error('Error starting audio call:', error);
+        updateStatus(`Error starting audio call: ${error.message}`, 'error');
+        stopAllConnections();
+    } finally {
+        disableButtons(false);
     }
 }
 
@@ -272,6 +431,7 @@ async function setupSharerConnection() {
             console.log('Sharer connection state:', peerConnection.connectionState);
             if (peerConnection.connectionState === 'connected') {
                 updateStatus('WebRTC connection established!', 'connected');
+                updateModeIndicator('Connected');
             } else if (peerConnection.connectionState === 'failed') {
                 updateStatus('WebRTC connection failed', 'error');
             } else if (peerConnection.connectionState === 'disconnected') {
@@ -333,10 +493,11 @@ async function setupSharerConnection() {
     }
 }
 
-// Start viewing screen (viewer role)
+// Start viewing screen
 async function startViewing() {
     try {
         updateStatus('Connecting to screen share...', 'waiting');
+        disableButtons(true);
         
         // Get session ID
         const sessionId = sessionIdInput.value.trim();
@@ -347,9 +508,13 @@ async function startViewing() {
         currentSessionId = sessionId;
         
         // Join session in Firestore
-        const sessionJoined = await joinSession(sessionId);
-        if (!sessionJoined) {
+        const sessionMode = await joinSession(sessionId);
+        if (!sessionMode) {
             throw new Error('Failed to join session');
+        }
+        
+        if (sessionMode !== 'screen-share') {
+            throw new Error('This session is not a screen share session');
         }
         
         updateStatus('Connecting to screen sharer...', 'waiting');
@@ -360,7 +525,85 @@ async function startViewing() {
     } catch (error) {
         console.error('Error viewing screen:', error);
         updateStatus(`Error viewing screen: ${error.message}`, 'error');
-        stopViewing();
+        stopAllConnections();
+    } finally {
+        disableButtons(false);
+    }
+}
+
+// Join video call
+async function joinVideoCall() {
+    try {
+        updateStatus('Joining video call...', 'waiting');
+        disableButtons(true);
+        
+        // Get session ID
+        const sessionId = sessionIdInput.value.trim();
+        if (!sessionId) {
+            throw new Error('Please enter a session ID');
+        }
+        
+        currentSessionId = sessionId;
+        
+        // Join session in Firestore
+        const sessionMode = await joinSession(sessionId);
+        if (!sessionMode) {
+            throw new Error('Failed to join session');
+        }
+        
+        if (sessionMode !== 'video-call') {
+            throw new Error('This session is not a video call session');
+        }
+        
+        updateStatus('Joining video call...', 'waiting');
+        
+        // Set up peer connection for viewer
+        await setupViewerConnection();
+        
+    } catch (error) {
+        console.error('Error joining video call:', error);
+        updateStatus(`Error joining video call: ${error.message}`, 'error');
+        stopAllConnections();
+    } finally {
+        disableButtons(false);
+    }
+}
+
+// Join audio call
+async function joinAudioCall() {
+    try {
+        updateStatus('Joining audio call...', 'waiting');
+        disableButtons(true);
+        
+        // Get session ID
+        const sessionId = sessionIdInput.value.trim();
+        if (!sessionId) {
+            throw new Error('Please enter a session ID');
+        }
+        
+        currentSessionId = sessionId;
+        
+        // Join session in Firestore
+        const sessionMode = await joinSession(sessionId);
+        if (!sessionMode) {
+            throw new Error('Failed to join session');
+        }
+        
+        if (sessionMode !== 'audio-call') {
+            throw new Error('This session is not an audio call session');
+        }
+        
+        updateStatus('Joining audio call...', 'waiting');
+        
+        // Set up peer connection for viewer
+        await setupViewerConnection();
+        
+    } catch (error) {
+        console.error('Error joining audio call:', error);
+        updateStatus(`Error joining audio call: ${error.message}`, 'error');
+        stopAllConnections();
+    } finally {
+        disableButtons(false);
     }
 }
 
@@ -378,11 +621,23 @@ async function setupViewerConnection() {
                 remoteVideo.srcObject = event.streams[0];
                 remoteStream = event.streams[0];
                 isViewing = true;
-                updateStatus('Connected! Receiving screen share...', 'connected');
+                updateStatus('Connected! Receiving stream...', 'connected');
+                updateModeIndicator('Connected');
                 
-                viewScreenBtn.textContent = 'Stop Viewing';
-                viewScreenBtn.classList.remove('btn--outline');
-                viewScreenBtn.classList.add('btn--secondary');
+                // Update button states based on mode
+                if (isSharing) {
+                    viewScreenBtn.textContent = 'Stop Viewing';
+                    viewScreenBtn.classList.remove('btn--outline');
+                    viewScreenBtn.classList.add('btn--secondary');
+                } else if (isVideoCall) {
+                    joinVideoCallBtn.textContent = 'Leave Video Call';
+                    joinVideoCallBtn.classList.remove('btn--outline');
+                    joinVideoCallBtn.classList.add('btn--secondary');
+                } else if (isAudioCall) {
+                    joinAudioCallBtn.textContent = 'Leave Audio Call';
+                    joinAudioCallBtn.classList.remove('btn--outline');
+                    joinAudioCallBtn.classList.add('btn--secondary');
+                }
                 
                 // Add event listeners to video element
                 remoteVideo.onloadedmetadata = function() {
@@ -425,6 +680,7 @@ async function setupViewerConnection() {
             console.log('Viewer connection state:', peerConnection.connectionState);
             if (peerConnection.connectionState === 'connected') {
                 updateStatus('WebRTC connection established!', 'connected');
+                updateModeIndicator('Connected');
             } else if (peerConnection.connectionState === 'failed') {
                 updateStatus('WebRTC connection failed', 'error');
             } else if (peerConnection.connectionState === 'disconnected') {
@@ -485,8 +741,8 @@ async function setupViewerConnection() {
     }
 }
 
-// Stop screen sharing
-function stopScreenShare() {
+// Stop all connections
+function stopAllConnections() {
     cleanupSessionListeners();
     
     if (localStream) {
@@ -500,34 +756,42 @@ function stopScreenShare() {
     }
     
     localVideo.srcObject = null;
-    isSharing = false;
+    remoteVideo.srcObject = null;
     
+    // Reset all states
+    isSharing = false;
+    isViewing = false;
+    isVideoCall = false;
+    isAudioCall = false;
+    
+    // Reset button states
     startShareBtn.textContent = 'Share Screen';
     startShareBtn.classList.remove('btn--secondary');
     startShareBtn.classList.add('btn--primary');
-    
-    updateStatus('Screen sharing stopped');
-    console.log('Screen sharing stopped');
-}
-
-// Stop viewing screen
-function stopViewing() {
-    cleanupSessionListeners();
-    
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-    
-    remoteVideo.srcObject = null;
-    isViewing = false;
     
     viewScreenBtn.textContent = 'View Screen';
     viewScreenBtn.classList.remove('btn--secondary');
     viewScreenBtn.classList.add('btn--outline');
     
-    updateStatus('Stopped viewing screen share');
-    console.log('Stopped viewing screen share');
+    startVideoCallBtn.textContent = 'Video Call';
+    startVideoCallBtn.classList.remove('btn--secondary');
+    startVideoCallBtn.classList.add('btn--primary');
+    
+    joinVideoCallBtn.textContent = 'Join Video Call';
+    joinVideoCallBtn.classList.remove('btn--secondary');
+    joinVideoCallBtn.classList.add('btn--outline');
+    
+    startAudioCallBtn.textContent = 'Audio Call';
+    startAudioCallBtn.classList.remove('btn--secondary');
+    startAudioCallBtn.classList.add('btn--primary');
+    
+    joinAudioCallBtn.textContent = 'Join Audio Call';
+    joinAudioCallBtn.classList.remove('btn--secondary');
+    joinAudioCallBtn.classList.add('btn--outline');
+    
+    updateModeIndicator('No active mode');
+    updateStatus('All connections stopped');
+    console.log('All connections stopped');
 }
 
 // Update status message
@@ -552,6 +816,7 @@ function generateSessionId() {
 function checkBrowserCompatibility() {
     const isHTTPS = location.protocol === 'https:' || location.hostname === 'localhost';
     const hasScreenShare = navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia;
+    const hasUserMedia = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
     const userAgent = navigator.userAgent.toLowerCase();
     const isChrome = userAgent.includes('chrome') && !userAgent.includes('edg');
     const isFirefox = userAgent.includes('firefox');
@@ -565,23 +830,24 @@ function checkBrowserCompatibility() {
         isChrome,
         isFirefox,
         hasScreenShare,
+        hasUserMedia,
         isModernBrowser
     });
     
     if (!isHTTPS) {
-        updateStatus('⚠️ HTTPS required for screen sharing. Please access via HTTPS.', 'warning');
-    } else if (!hasScreenShare) {
-        updateStatus('⚠️ Screen sharing not supported in this browser. Please use Chrome, Firefox, or Safari.', 'warning');
+        updateStatus('⚠️ HTTPS required for WebRTC features. Please access via HTTPS.', 'warning');
+    } else if (!hasScreenShare || !hasUserMedia) {
+        updateStatus('⚠️ WebRTC features not supported in this browser. Please use Chrome, Firefox, or Safari.', 'warning');
     } else if (!isModernBrowser) {
         updateStatus('⚠️ Please use a modern browser for best compatibility.', 'warning');
     } else {
-        updateStatus('✅ Browser compatible for screen sharing');
+        updateStatus('✅ Browser compatible for all WebRTC features');
     }
 }
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('WebRTC Screen Share App loaded');
+    console.log('WebRTC Screen Share & Calls App loaded');
     
     // Check browser compatibility
     checkBrowserCompatibility();
@@ -600,7 +866,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     startShareBtn.addEventListener('click', function() {
         if (isSharing) {
-            stopScreenShare();
+            stopAllConnections();
         } else {
             startScreenShare();
         }
@@ -608,9 +874,41 @@ document.addEventListener('DOMContentLoaded', function() {
     
     viewScreenBtn.addEventListener('click', function() {
         if (isViewing) {
-            stopViewing();
+            stopAllConnections();
         } else {
             startViewing();
+        }
+    });
+    
+    startVideoCallBtn.addEventListener('click', function() {
+        if (isVideoCall) {
+            stopAllConnections();
+        } else {
+            startVideoCall();
+        }
+    });
+    
+    joinVideoCallBtn.addEventListener('click', function() {
+        if (isViewing) {
+            stopAllConnections();
+        } else {
+            joinVideoCall();
+        }
+    });
+    
+    startAudioCallBtn.addEventListener('click', function() {
+        if (isAudioCall) {
+            stopAllConnections();
+        } else {
+            startAudioCall();
+        }
+    });
+    
+    joinAudioCallBtn.addEventListener('click', function() {
+        if (isViewing) {
+            stopAllConnections();
+        } else {
+            joinAudioCall();
         }
     });
     
